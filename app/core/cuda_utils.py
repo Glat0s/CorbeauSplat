@@ -148,6 +148,7 @@ def warm_up_cuda(device: str = "cuda") -> None:
             _ = torch.zeros(1, device=device)
             torch.cuda.synchronize(device)
             _warmed_up = True
+            torch.backends.cudnn.benchmark = True
             logger.debug("CUDA context warmed up.")
     except Exception as e:
         logger.debug(f"CUDA warm-up skipped: {e}")

@@ -76,6 +76,7 @@ class PersistentSAMPredictor:
         self._sam = None
         self._predictor = None
         self._loaded = False
+        self._has_encoder_graph = False
 
         if not _is_sam_available():
             logger.warning("segment_anything not installed — SAM will be skipped.")
@@ -113,6 +114,10 @@ class PersistentSAMPredictor:
                 except Exception as e:
                     logger.debug("torch.compile failed (%s) — running eager.", e)
 
+            # CUDA graph capture for the image encoder (fixed 1024×1024 input)
+            if device == "cuda":
+                self._build_encoder_graph(sam)
+
             self._sam = sam
             self._predictor = SamPredictor(sam)
             self._loaded = True
@@ -120,6 +125,48 @@ class PersistentSAMPredictor:
 
         except Exception as e:
             logger.error("Failed to load SAM: %s", e)
+
+    # ------------------------------------------------------------------
+
+    def _build_encoder_graph(self, sam) -> None:
+        """
+        Capture the SAM ViT image encoder as a CUDA graph.
+        Eliminates ~10-15% Python kernel-launch overhead on fixed-shape input.
+        """
+        try:
+            import torch
+            enc_size = sam.image_encoder.img_size  # typically 1024
+            static_inp = torch.zeros(1, 3, enc_size, enc_size,
+                                     dtype=torch.float32, device=self._device)
+
+            # Warmup (3 runs to stabilise cuDNN algorithm selection)
+            with torch.no_grad():
+                for _ in range(3):
+                    sam.image_encoder(static_inp)
+            torch.cuda.synchronize(self._device)
+
+            capture_stream = torch.cuda.Stream(device=self._device)
+            graph = torch.cuda.CUDAGraph()
+
+            with torch.no_grad(), torch.cuda.graph(
+                graph, stream=capture_stream, capture_error_mode="relaxed"
+            ):
+                static_out = sam.image_encoder(static_inp)
+            torch.cuda.synchronize(self._device)
+
+            def _encoder_runner(x: torch.Tensor) -> torch.Tensor:
+                static_inp.copy_(x)
+                graph.replay()
+                return static_out.clone()
+
+            # Monkey-patch the encoder with the graph runner
+            sam.image_encoder = _encoder_runner
+            self._has_encoder_graph = True
+            logger.info("SAM image encoder CUDA graph captured (enc_size=%d).", enc_size)
+
+        except Exception as e:
+            logger.debug("SAM encoder CUDA graph capture failed (%s) -- using eager.", e)
+            self._has_encoder_graph = False
 
     # ------------------------------------------------------------------
 

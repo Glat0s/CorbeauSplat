@@ -290,6 +290,18 @@ class VR180Engine(BaseEngine):
             if sam is None:
                 _log("SAM unavailable — continuing with chroma-key only.")
 
+        # Load XSeg (fast alternative to SAM for single-person scenes)
+        xseg = None
+        use_xseg = params.get("use_xseg", False)
+        if use_xseg:
+            _status("Loading XSeg model...")
+            from .xseg_engine import XSegEngine
+            xseg_ckpt = params.get("xseg_checkpoint", "")
+            xseg = XSegEngine(checkpoint=xseg_ckpt if xseg_ckpt else None, device=device)
+            if not xseg.load(xseg_ckpt if xseg_ckpt else None):
+                _log("XSeg unavailable — continuing without segmentation refinement.")
+                xseg = None
+
         # ---- Stream + process frames ----
         _status(f"Processing VR 180 video (eye={eye}, fmt={fmt.upper()}, fps={fps})…")
 
@@ -305,9 +317,20 @@ class VR180Engine(BaseEngine):
                 if check_cancel and check_cancel():
                     return written
                 out_path = output_dir / f"frame_{start_idx + j:04d}.png"
-                if sam is not None:
-                    # SAM refines the alpha from chroma key
-                    rgb = rgba[:, :, [0, 1, 2]]  # RGB from RGBA
+                if xseg is not None:
+                    # XSeg: fast single-person segmentation
+                    rgb = rgba[:, :, [0, 1, 2]]
+                    prior_alpha = rgba[:, :, 3]
+                    xseg_alpha = xseg.predict_frame(rgb)
+                    if xseg_alpha is not None:
+                        import cv2 as _cv2
+                        k = np.ones((5, 5), np.uint8)
+                        combined = _cv2.bitwise_and(prior_alpha, xseg_alpha)
+                        combined = _cv2.morphologyEx(combined, _cv2.MORPH_CLOSE, k)
+                        rgba[:, :, 3] = combined
+                elif sam is not None:
+                    # SAM: high-quality but slower segmentation
+                    rgb = rgba[:, :, [0, 1, 2]]
                     prior_alpha = rgba[:, :, 3]
                     sam_alpha = sam.predict_frame(rgb)
                     if sam_alpha is not None:

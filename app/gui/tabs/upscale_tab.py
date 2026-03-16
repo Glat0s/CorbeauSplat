@@ -108,6 +108,26 @@ class UpscaleTab(QWidget):
         self.face_enhance.setToolTip(tr("upscale_tip_face"))
         form_layout.addRow("", self.face_enhance)
 
+        # GFPGAN backend selector
+        self.lbl_gfpgan_backend = QLabel(tr("upscale_lbl_gfpgan_backend", "GFPGAN backend:"))
+        self.combo_gfpgan_backend = QComboBox()
+        self.combo_gfpgan_backend.addItem("Triton + CUDA Graph (fastest)", "cuda_graph")
+        self.combo_gfpgan_backend.addItem("Triton FP16 (fast)", "triton")
+        self.combo_gfpgan_backend.addItem("PyTorch FP32 (fallback)", "pytorch")
+        self.combo_gfpgan_backend.setToolTip(tr("upscale_tip_gfpgan_backend", "Select inference backend for GFPGAN face restoration"))
+        form_layout.addRow(self.lbl_gfpgan_backend, self.combo_gfpgan_backend)
+
+        # RealESRGAN inference backend
+        self.lbl_esrgan_backend = QLabel(tr("upscale_lbl_esrgan_backend", "ESRGAN backend:"))
+        self.combo_esrgan_backend = QComboBox()
+        self.combo_esrgan_backend.addItem("ORT TensorRT (fastest, requires build)", "ort_trt")
+        self.combo_esrgan_backend.addItem("ORT CUDA EP (fast)", "ort_cuda")
+        self.combo_esrgan_backend.addItem("PyTorch + torch.compile (default)", "torch_compile")
+        self.combo_esrgan_backend.addItem("PyTorch FP16 (safe)", "torch_fp16")
+        self.combo_esrgan_backend.setCurrentIndex(2)
+        self.combo_esrgan_backend.setToolTip(tr("upscale_tip_esrgan_backend", "TRT builds engine on first run (~60s). Result is cached for future runs."))
+        form_layout.addRow(self.lbl_esrgan_backend, self.combo_esrgan_backend)
+
         # FP16 Option
         self.fp16_check = QCheckBox(tr("upscale_lbl_fp16"))
         self.fp16_check.setToolTip(tr("upscale_tip_fp16"))
@@ -328,7 +348,9 @@ class UpscaleTab(QWidget):
             "tile": self.tile_spin.value(),
             "target_scale": self.get_scale_factor(),
             "face_enhance": self.face_enhance.isChecked(),
-            "fp16": self.fp16_check.isChecked()
+            "fp16": self.fp16_check.isChecked(),
+            "gfpgan_backend": self.combo_gfpgan_backend.currentData(),
+            "esrgan_backend": self.combo_esrgan_backend.currentData(),
         }
         
     def get_scale_factor(self):
@@ -345,6 +367,14 @@ class UpscaleTab(QWidget):
         if "tile" in params: self.tile_spin.setValue(params["tile"])
         if "fp16" in params: self.fp16_check.setChecked(params["fp16"])
         if "model_name" in params: self.model_combo.setCurrentText(params["model_name"])
+        if "gfpgan_backend" in params:
+            idx = self.combo_gfpgan_backend.findData(params["gfpgan_backend"])
+            if idx >= 0:
+                self.combo_gfpgan_backend.setCurrentIndex(idx)
+        if "esrgan_backend" in params:
+            idx = self.combo_esrgan_backend.findData(params["esrgan_backend"])
+            if idx >= 0:
+                self.combo_esrgan_backend.setCurrentIndex(idx)
 
     def get_state(self):
         return self.get_params()
@@ -375,6 +405,8 @@ class UpscaleTab(QWidget):
         self.face_enhance.setText(tr("upscale_check_face"))
         self.face_enhance.setToolTip(tr("upscale_tip_face"))
         self.lbl_fp16.setText(tr("upscale_lbl_fp16", "Demi-précision (FP16)"))
-        
+        self.lbl_gfpgan_backend.setText(tr("upscale_lbl_gfpgan_backend", "GFPGAN backend:"))
+        self.lbl_esrgan_backend.setText(tr("upscale_lbl_esrgan_backend", "ESRGAN backend:"))
+
         self.check_model_status()
         self.update_model_desc()

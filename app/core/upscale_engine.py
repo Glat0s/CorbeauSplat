@@ -234,13 +234,17 @@ class UpscaleEngine(BaseEngine):
                 
             output, _ = upsampler.enhance(img, outscale=final_scale)
             
-            # Face Enhance (GFPGAN) - Optional, implementation complex without helper wrapper.
+            # Face Enhance (GFPGAN)
             if face_enhance:
-                # Placeholder: Face enhancement logic usually requires loading GFPGANer
-                # For this iteration, we acknowledge the flag but might not implement full GFPGAN unless requested heavily
-                # or if we implement a FaceEnhancer helper.
-                # Given dependencies list had 'gfpgan', we could try using it if installed.
-                pass
+                try:
+                    from app.core.gfpgan_engine import GFPGANEngine
+                    if not hasattr(self, '_gfpgan') or self._gfpgan is None:
+                        self._gfpgan = GFPGANEngine(device=self.device if hasattr(self, 'device') else 'cuda')
+                        self._gfpgan.load()
+                    if self._gfpgan.is_loaded:
+                        output = self._gfpgan.enhance_frame(output)
+                except Exception as _e:
+                    self.log(f"GFPGAN face enhancement skipped: {_e}")
             
             cv2.imwrite(output_path, output)
             return True

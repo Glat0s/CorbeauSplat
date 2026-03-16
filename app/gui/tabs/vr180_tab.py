@@ -191,6 +191,43 @@ class VR180Tab(QWidget):
         self.check_use_sam.toggled.connect(self._update_sam_group)
         sam_layout.addWidget(self.check_use_sam)
 
+        # XSeg fast segmentation (alternative to SAM)
+        self.check_use_xseg = QCheckBox(
+            tr("vr180_check_xseg", "Enable XSeg segmentation (fast, ~1.95ms/frame)")
+        )
+        self.check_use_xseg.setToolTip(
+            tr("vr180_tip_xseg",
+               "XSeg is a lightweight U-Net (256×256) — 5× faster than SAM.\n"
+               "Best for single-person green-screen footage.\n"
+               "Requires XSeg_model.pth checkpoint.")
+        )
+        self.check_use_xseg.toggled.connect(self._update_xseg_group)
+        sam_layout.addWidget(self.check_use_xseg)
+
+        # XSeg checkpoint
+        xseg_row = QHBoxLayout()
+        self.lbl_xseg_ckpt = QLabel(tr("vr180_lbl_xseg_ckpt", "XSeg checkpoint (.pth):"))
+        xseg_row.addWidget(self.lbl_xseg_ckpt)
+        self.edit_xseg_ckpt = DropLineEdit()
+        self.edit_xseg_ckpt.setPlaceholderText(tr("vr180_ph_xseg_ckpt", "Path to XSeg_model.pth"))
+        xseg_row.addWidget(self.edit_xseg_ckpt)
+        self.btn_browse_xseg = QPushButton(tr("btn_browse", "Browse"))
+        self.btn_browse_xseg.clicked.connect(self._browse_xseg_checkpoint)
+        xseg_row.addWidget(self.btn_browse_xseg)
+        sam_layout.addLayout(xseg_row)
+
+        # Batch size
+        batch_row = QHBoxLayout()
+        self.lbl_batch = QLabel(tr("vr180_lbl_batch", "GPU batch size:"))
+        batch_row.addWidget(self.lbl_batch)
+        self.spin_batch = QSpinBox()
+        self.spin_batch.setRange(1, 64)
+        self.spin_batch.setValue(8)
+        self.spin_batch.setToolTip(tr("vr180_tip_batch", "Number of frames processed per GPU batch. Higher = faster but more VRAM."))
+        batch_row.addWidget(self.spin_batch)
+        batch_row.addStretch()
+        sam_layout.addLayout(batch_row)
+
         # Model type
         row = QHBoxLayout()
         self.lbl_sam_model = QLabel(tr("vr180_lbl_sam_model", "SAM model:"))
@@ -241,6 +278,8 @@ class VR180Tab(QWidget):
         layout.addWidget(grp_sam)
         layout.addStretch()
 
+        self._update_xseg_group(False)
+
         # Keep references to SAM-dependent widgets for enable/disable
         self._sam_widgets = [
             self.lbl_sam_model, self.combo_sam_model,
@@ -267,6 +306,21 @@ class VR180Tab(QWidget):
         )
         if path:
             self.edit_ckpt.setText(path)
+
+    def _update_xseg_group(self, enabled: bool):
+        self.lbl_xseg_ckpt.setEnabled(enabled)
+        self.edit_xseg_ckpt.setEnabled(enabled)
+        self.btn_browse_xseg.setEnabled(enabled)
+
+    def _browse_xseg_checkpoint(self):
+        path, _ = get_open_file_name(
+            self,
+            tr("vr180_lbl_xseg_ckpt", "XSeg Checkpoint"),
+            "",
+            "PyTorch checkpoint (*.pth);;All files (*.*)",
+        )
+        if path:
+            self.edit_xseg_ckpt.setText(path)
 
     def _download_sam(self):
         model_type = self.combo_sam_model.currentData()
@@ -319,6 +373,9 @@ class VR180Tab(QWidget):
             "sam_model_type": self.combo_sam_model.currentData(),
             "sam_checkpoint": self.edit_ckpt.text().strip(),
             "device": self.combo_device.currentData(),
+            "use_xseg": self.check_use_xseg.isChecked(),
+            "xseg_checkpoint": self.edit_xseg_ckpt.text().strip(),
+            "batch_size": self.spin_batch.value(),
         }
 
     def set_params(self, params: dict):
@@ -352,6 +409,12 @@ class VR180Tab(QWidget):
             idx = self.combo_device.findData(params["device"])
             if idx >= 0:
                 self.combo_device.setCurrentIndex(idx)
+        if "use_xseg" in params:
+            self.check_use_xseg.setChecked(bool(params["use_xseg"]))
+        if "xseg_checkpoint" in params:
+            self.edit_xseg_ckpt.setText(params["xseg_checkpoint"])
+        if "batch_size" in params:
+            self.spin_batch.setValue(int(params["batch_size"]))
 
     def get_state(self):
         return self.get_params()
@@ -385,3 +448,6 @@ class VR180Tab(QWidget):
         self.btn_browse_ckpt.setText(tr("btn_browse", "Browse"))
         self.btn_download_sam.setText(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
         self.lbl_device.setText(tr("vr180_lbl_device", "Compute device:"))
+        self.check_use_xseg.setText(tr("vr180_check_xseg", "Enable XSeg segmentation (fast, ~1.95ms/frame)"))
+        self.lbl_xseg_ckpt.setText(tr("vr180_lbl_xseg_ckpt", "XSeg checkpoint (.pth):"))
+        self.lbl_batch.setText(tr("vr180_lbl_batch", "GPU batch size:"))

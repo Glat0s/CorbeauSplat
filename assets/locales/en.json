@@ -352,5 +352,15 @@
     "vr180_worker_start": "--- Starting VR 180 pipeline ---",
     "vr180_failed": "VR 180 processing failed.",
     "vr180_colmap_start": "VR 180 extraction done → starting COLMAP...",
-    "vr180_done": "VR 180 segmentation complete."
+    "vr180_done": "VR 180 segmentation complete.",
+    "upscale_lbl_gfpgan_backend": "GFPGAN backend:",
+    "upscale_tip_gfpgan_backend": "Select inference backend for GFPGAN face restoration. Triton+CUDA Graph is fastest on RTX.",
+    "upscale_lbl_esrgan_backend": "ESRGAN inference backend:",
+    "upscale_tip_esrgan_backend": "ORT TensorRT builds engine on first run (~60s), then caches. Gives 2-3x speedup over PyTorch.",
+    "vr180_check_xseg": "Enable XSeg segmentation (fast, ~1.95ms/frame)",
+    "vr180_tip_xseg": "XSeg is a lightweight U-Net (256×256) — 5× faster than SAM. Best for single-person green-screen footage. Requires XSeg_model.pth checkpoint.",
+    "vr180_lbl_xseg_ckpt": "XSeg checkpoint (.pth):",
+    "vr180_ph_xseg_ckpt": "Path to XSeg_model.pth",
+    "vr180_lbl_batch": "GPU batch size:",
+    "vr180_tip_batch": "Number of frames processed per GPU batch. Higher = faster but uses more VRAM."
 }

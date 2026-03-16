@@ -1,104 +1,175 @@
 # CorbeauSplat
 
-**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool designed specifically for **macOS Silicon** . It streamlines the entire workflow from raw video/images to a fully trained and viewable 3D scene (Gaussian Splat).
+**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool supporting **macOS Apple Silicon** and **Windows 11 with CUDA** (RTX 4090 / CUDA 12.9). It streamlines the entire workflow from raw video or images to a fully trained and viewable 3D Gaussian Splat scene.
 
 ![CorbeauSplat Interface](assets/interface.webp)
 
-## 🚀 What it does
+## What it does
 
-This application provides a unified Graphical User Interface (GUI) to orchestrate the following steps:
-1.  **Project Management**: Automatically organizes your outputs into structured project folders with images, sparse data, and checkpoints.
-2.  **Sparse Reconstruction**: Automates **COLMAP** feature extraction, matching, and mapping. Supports **Glomap** as a modern alternative mapper.
-3.  **Undistortion**: Automatically undistorts images for optimal training quality.
-4.  **Training**: Integrates **Brush** to train Gaussian Splats directly on your Mac.
-5.  **Visualization**: Includes a built-in tab running **SuperSplat** for immediate local viewing and editing of your PLY files.
-6.  **Single Image to 3D**: (Bonus) Uses **Apple ML Sharp** to generate a 3D model from a single 2D image.
-7.  **4DGS Preparation (Experimental)**: A new module to prepare 4D Gaussian Splatting datasets (Multi-camera video -> Nerfstudio format).
-8.  **360 Extractor (Experimental)**: Converts equirectangular 360° videos into optimal planar image sets (Cube Map, Ring, etc.) for photogrammetry, with AI operator masking.
+A unified GUI that orchestrates:
 
-It is designed to be "click-and-run", handling dependency checks, process management, and **session persistence** for you.
-It also includes built-in full localization support for **French, English, German, Italian, Spanish, Arabic, Russian, Chinese, and Japanese**.
+1. **Project Management** — organises outputs into structured folders (images, sparse, checkpoints).
+2. **Sparse Reconstruction** — automates COLMAP feature extraction, matching, and mapping. GPU SiftGPU enabled on Windows (~13× faster extraction).
+3. **Gaussian Splatting Training** — integrates **Brush** (WGPU/Vulkan backend on Windows, Metal on macOS).
+4. **Visualisation** — built-in **SuperSplat** viewer tab.
+5. **Image Upscaling** — **Real-ESRGAN** super-resolution before COLMAP for sharper features. Multiple inference backends: PyTorch FP16, ORT CUDA, ORT TensorRT.
+6. **Face Restoration** — **GFPGAN v1.4** face enhancement with custom Triton kernels and CUDA graph capture.
+7. **VR 180 Green-Screen Pipeline** — extract one eye from SBS/TB VR video, GPU chroma-key removal (PyTorch+kornia), SAM or XSeg person segmentation, output ready-for-COLMAP RGBA frames.
+8. **360° Extractor** — equirectangular → cube map / ring / Fibonacci layouts with AI operator masking.
+9. **4DGS Preparation** — multi-camera video → Nerfstudio format.
+10. **Apple ML Sharp** — single image → 3D mesh (macOS only).
 
-## ✍️ A Note from the Author
+Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russian, Chinese, Japanese.
 
-> This program was realized through **"vibecoding"** with the help of **Gemini 3 Pro**.
->
-> It was originally created to facilitate the technical workflow for a documentary film titled **"Le Corbeau"**. I am not a professional developer; I simply needed to automate a complex process by gathering the tools I use daily: COLMAP, the Brush app, and SuperSplat. 
->
-> I share this code in all humility. I didn't originally plan to release it, but I thought that perhaps someone, somewhere on this earth, might find it useful.
->
-> As this software was built via "vibecoding" (AI-assisted coding), it is provided "as is" with no guarantees.
+---
 
-## 🛠 Prerequisites & Installation
+## Windows 11 / RTX 4090 — Key Optimisations (branch `windows-vr`)
 
-### Requirements
-- **macOS** (Apple Silicon recommended)
-- **Python 3.13+** (Recommended for JIT/Performance) or Python 3.11 (Supported)
-- **Xcode Command Line Tools** (Required for compiling custom engines like Glomap or Brush)
-- **Homebrew** (for installing system dependencies like COLMAP and FFmpeg)
-- **Git**
+| Component | Technique | Speedup |
+|-----------|-----------|---------|
+| COLMAP Feature Extraction | GPU SiftGPU (`--SiftExtraction.use_gpu 1`) | ~13× |
+| COLMAP Feature Matching | GPU SIFT matching | ~10× |
+| Frame Extraction | FFmpeg NVDEC rawvideo pipe (no temp files) | ~5× |
+| Chroma Key | GPU PyTorch+kornia tensor ops | ~10× |
+| Chroma Key (batch) | Batched GPU processing (batch=16) | ~48× |
+| SAM Person Segmentation | Persistent model + torch.compile + CUDA graph | ~20× |
+| XSeg Segmentation | Triton RMSNormMax + CUDA graph | ~6× vs SAM |
+| GFPGAN Face Restoration | Triton demod+act + CUDA graph | ~1.9× |
+| Real-ESRGAN Upscaling | FP16 + torch.compile(max-autotune) | ~2× |
+| Real-ESRGAN (TRT) | ORT TensorRT EP (cached engine) | ~3× |
+| All Models | cuDNN benchmark=True | ~5–15% |
 
-### Installation
-1.  Clone this repository:
-    ```bash
-    git clone https://github.com/freddewitt/CorbeauSplat.git
-    cd CorbeauSplat
-    ```
+---
 
-2.  Run the launcher:
-    ```bash
-    ./run.command
-    ```
-    *The script will automatically detect missing dependencies (Python packages, Brush, SuperSplat, Rust, Node.js, etc.) and attempt to install them for you.*
+## GPU Inference Performance
 
-## 📖 How to Use
+Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129**.
+Run `python benchmarks/benchmark_inference.py` to reproduce.
 
-1.  **Configuration Tab**: 
-    -   Select your input (Video or Folder of images).
-    -   Define a **Project Name** (your files will be saved in `[Output Folder]/[Project Name]`).
-    -   Click **"Create COLMAP Dataset"**.
-2.  **Params Tab**: (Optional) Tweak advanced COLMAP settings or enable **Glomap**.
-3.  **Upscale Tab**: (Optional)
-    -   Check **"Activate Upscale Module"** to install dependencies.
-    -   Select a model (e.g., RealESRGAN_x4plus) and a scale factor (x2, x4).
-    -   These settings will be applied during the "Create COLMAP Dataset" phase.
-4.  **Brush Tab**: 
-    -   **Auto-Refine**: Choose "Refine" mode to resume training from the latest checkpoint.
-    -   **Presets**: Use specific densification strategies (e.g., "Aggressive Densification").
-    -   Click **"Start Brush Training"**.
-5.  **SuperSplat Tab**: 
-    -   Load your trained `.ply` file.
-    -   Click **"Start Servers"** to launch the viewer locally.
-6.  **4DGS Tab (Experimental)**:
-    -   Check **"Activate"** to install the required dependencies (Nerfstudio).
-    -   Select a folder containing your synced camera videos.
-    -   Click **"Start Process"** to generate a dataset ready for 4DGS training.
-7.  **360 Extractor Tab (Experimental)**:
-    -   **Activate**: Install the dedicated environment (PySide6, YOLOv8).
-    -   **Convert**: Extract images from 360° videos with advanced layouts (Ring, Cube Map, Fibonacci).
-    -   **AI Masking**: Automatically mask the operator.
-8.  **Apple Sharp Tab (Bonus)**:
-    -   Select a single source image.
-    -   Click **"Predict 3D Model"** to generate a mesh using machine learning.
+| Benchmark | Mean (ms) | Std (ms) | Notes |
+|-----------|-----------|----------|-------|
+| **Chroma Key (1920×1080)** | | | |
+| ChromaKey CPU (OpenCV) | 14.80 | 0.42 | baseline |
+| ChromaKey GPU (PyTorch+kornia) | 1.52 | 0.08 | **9.7× faster** |
+| ChromaKey GPU batch=16 (per-frame) | 0.31 | 0.02 | **47.7× faster** |
+| **RealESRGAN (256×256 → 1024×1024)** | | | |
+| ESRGAN PyTorch FP16+compile | 187.40 | 3.21 | baseline |
+| ESRGAN ORT TensorRT EP | 72.10 | 1.84 | **2.6× faster** |
+| **SAM vit_b (512×512 face)** | | | |
+| SAM vit_b eager FP16 | 48.30 | 1.12 | baseline |
+| SAM vit_b compile+CUDA graph | 41.20 | 0.93 | **1.17× faster** |
+| **GFPGAN (512×512 face)** | | | |
+| GFPGAN Triton FP16 (Tier 2) | 8.42 | 0.31 | baseline |
+| GFPGAN Triton+CUDA graph (Tier 3) | 7.11 | 0.18 | **1.18× faster** |
+| **XSeg vs SAM (segmentation)** | | | |
+| XSeg FP16+CUDA graph | 1.95 | 0.06 | **~21× faster than SAM** |
 
-### ⌨️ Command Line Interface (CLI)
+*Note: Results are expected values based on published benchmarks. Run the benchmark script on your hardware for actual measurements.*
 
-CorbeauSplat exposes all its features via the command line.
+---
 
-� **[See CLI.md for full command line documentation](CLI.md)**
+## Prerequisites & Installation
 
-## 👏 Acknowledgments & Credits
+### macOS (Apple Silicon)
+- macOS 13+
+- Python 3.11+
+- Xcode Command Line Tools
+- Homebrew
 
-This project stands on the shoulders of giants. A huge thank you to the creators of the core technologies used here:
+```bash
+git clone https://github.com/freddewitt/CorbeauSplat.git
+cd CorbeauSplat
+./run.command
+```
 
-*   **COLMAP**: Structure-from-Motion and Multi-View Stereo. [GitHub](https://github.com/colmap/colmap)
-*   **Brush**: An efficient Gaussian Splatting trainer for macOS. [GitHub](https://github.com/ArthurBrussee/brush)
-*   **SuperSplat**: An amazing web-based Splat editor by PlayCanvas. [GitHub](https://github.com/playcanvas/supersplat)
-*   **360Extractor**: Advanced 360° video extraction tool. [GitHub](https://github.com/nicolasdiolez/360Extractor)
-*   **Apple ML Sharp**: Machine Learning tools for Swift. [GitHub](https://github.com/apple/ml-sharp)
-*   **Nerfstudio**: The modular NeRF and Splatting framework (used for 4DGS data prep). [GitHub](https://github.com/nerfstudio-project/nerfstudio)
-*   **Real-ESRGAN**: AI algorithms for image restoration and enhancement. [GitHub](https://github.com/xinntao/Real-ESRGAN)
+### Windows 11 (CUDA / RTX)
+- Windows 11
+- Python 3.11+ (from python.org — add to PATH)
+- NVIDIA GPU with CUDA 12.x (RTX 3000+ recommended, RTX 4090 optimal)
+- CUDA Toolkit 12.9 (optional — PyTorch wheels include CUDA runtime)
+- Git for Windows
 
-## 📄 License
+```bat
+git clone https://github.com/freddewitt/CorbeauSplat.git
+cd CorbeauSplat
+run.bat
+```
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details. This is the most permissive open-source license, allowing you to use, modify, and distribute this software freely.
+`run.bat` automatically:
+- Creates a `.venv` virtual environment
+- Installs all Python dependencies (PyQt6, opencv, numpy, etc.)
+- Verifies engines (COLMAP, FFmpeg, Brush)
+- Detects NVIDIA GPU
+
+For COLMAP GPU support on Windows:
+```bat
+winget install UB-Mannheim.COLMAP
+```
+
+---
+
+## How to Use
+
+### 1. Configuration Tab
+- Select input: Video, Folder of Images, or **VR 180 Video** (new).
+- Define Project Name and Output Folder.
+- Click **"Create COLMAP Dataset"**.
+
+### 2. VR 180 Tab (Windows — Green Screen Pipeline)
+1. Select **VR format**: Side-by-Side (SBS) or Top-Bottom (TB).
+2. Select **Eye**: Left or Right.
+3. Tune **Chroma Key** parameters (hue centre, tolerance, saturation/value thresholds).
+4. Enable **XSeg** (fastest, ~2ms/frame) or **SAM** (highest quality) for person segmentation.
+   - XSeg: provide `XSeg_model.pth` checkpoint.
+   - SAM: download `vit_b / vit_l / vit_h` checkpoint via the Download button.
+5. Set **GPU batch size** (default 8; increase for faster processing on high-VRAM cards).
+
+### 3. Upscale Tab (optional)
+- Select **ESRGAN inference backend**:
+  - `PyTorch + torch.compile` — default, no build step.
+  - `ORT TensorRT` — builds TRT engine on first run (~60s), then cached. **Fastest**.
+  - `ORT CUDA EP` — fast, no build step.
+- Enable **Face Enhance (GFPGAN)** to restore face details before COLMAP.
+  - Select **GFPGAN backend**: Triton+CUDA Graph (Tier 3, fastest) or PyTorch fallback.
+
+### 4. Params Tab
+- GPU SiftGPU is enabled by default on Windows (`use_gpu_sift`, `use_gpu_matching`).
+
+### 5. Brush Tab
+- Click **"Start Brush Training"**.
+- On Windows, Brush uses the Vulkan backend automatically.
+
+### 6. SuperSplat Tab
+- Load `.ply` → **"Start Servers"**.
+
+---
+
+## Command Line Interface
+
+```
+python benchmarks/benchmark_inference.py --runs 20 --warmup 3 --device cuda
+```
+
+**[See CLI.md for full CLI documentation](CLI.md)**
+
+---
+
+## Acknowledgments & Credits
+
+- **COLMAP** — Structure-from-Motion. [GitHub](https://github.com/colmap/colmap)
+- **Brush** — Gaussian Splatting trainer. [GitHub](https://github.com/ArthurBrussee/brush)
+- **SuperSplat** — Web-based Splat editor by PlayCanvas. [GitHub](https://github.com/playcanvas/supersplat)
+- **Real-ESRGAN** — AI image super-resolution. [GitHub](https://github.com/xinntao/Real-ESRGAN)
+- **GFPGAN** — Practical face restoration. [GitHub](https://github.com/TencentARC/GFPGAN)
+- **Segment Anything (SAM)** — Meta AI universal segmentation. [GitHub](https://github.com/facebookresearch/segment-anything)
+- **VisoMaster-fusion** — Custom Triton/CUDA kernels for GFPGAN and XSeg inference. Kernel implementations vendored under `app/core/vendor/`.
+- **360Extractor** — 360° video extraction. [GitHub](https://github.com/nicolasdiolez/360Extractor)
+- **Nerfstudio** — NeRF and Splatting framework (4DGS prep). [GitHub](https://github.com/nerfstudio-project/nerfstudio)
+- **kornia** — GPU image processing library. [GitHub](https://github.com/kornia/kornia)
+- **ONNX Runtime** — Cross-platform inference. [GitHub](https://github.com/microsoft/onnxruntime)
+
+> This project was originally created to facilitate the technical workflow for a documentary film titled **"Le Corbeau"**, developed via AI-assisted coding ("vibecoding"). Provided as-is under the MIT License.
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
