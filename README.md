@@ -49,45 +49,28 @@ Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russia
 
 ## GPU Inference Performance
 
-Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129**.
-Run `python benchmarks/benchmark_inference.py` to reproduce.  Full results: [`benchmarks/results.md`](benchmarks/results.md).
+Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124**.
+Run `python benchmarks/benchmark_inference.py` to reproduce.
 
-### Pipeline Benchmarks
+| Model / Component | Inference Type | Mean (ms) | Speedup |
+|-------------------|----------------|-----------|---------|
+| **Chroma Key (1080p)** | CPU (OpenCV) | 8.46 | 1.0× |
+| | GPU (PyTorch+kornia) | 4.97 | **1.7×** |
+| | GPU (Batch=16, per-frame) | 4.65 | **1.8×** |
+| **RealESRGAN (x4)** | PyTorch FP16+compile | — | weights not downloaded |
+| | ORT TensorRT (ONNX) | — | weights not downloaded |
+| **SAM vit_b (512²)** | PyTorch Eager FP16 | 48.06 | 1.0× |
+| | CUDA Graph (encoder) | 48.53 | ~1.0× ¹ |
+| | +Triton (LN/Window ops) | 48.67 | ~1.0× ¹ |
+| **GFPGAN v1.4** | — | — | auto-downloads on first use |
+| **XSeg Segmentation** | — | — | weights not downloaded |
 
-| Benchmark | Mean (ms) | Std (ms) | Notes |
-|-----------|-----------|----------|-------|
-| **Chroma Key (1920×1080)** | | | |
-| ChromaKey CPU (OpenCV) | 14.80 | 0.42 | baseline |
-| ChromaKey GPU (PyTorch+kornia) | 1.52 | 0.08 | **9.7×** |
-| ChromaKey GPU batch=16 (per-frame) | 0.31 | 0.02 | **47.7×** |
-| **RealESRGAN (256×256 → 1024×1024)** | | | |
-| ESRGAN PyTorch FP16+compile | 187.40 | 3.21 | baseline |
-| ESRGAN FP16+compile+Triton | 151.10 | 2.58 | **1.24×** |
-| ESRGAN ORT TensorRT EP | 72.10 | 1.84 | **2.6×** |
-| ESRGAN ORT TRT + Triton | ~57.80 | — | **3.24×** |
-| **SAM vit_b (512×512 face)** | | | |
-| SAM vit_b eager FP16 | 48.30 | 1.12 | baseline |
-| SAM vit_b compile+CUDA graph | 41.20 | 0.93 | 1.17× |
-| SAM vit_b +Triton LayerNorm+WindowOps | 33.80 | 0.74 | **1.43×** |
-| **GFPGAN (512×512 face)** | | | |
-| GFPGAN Triton FP16 (Tier 2) | 8.42 | 0.31 | |
-| GFPGAN Triton+CUDA graph (Tier 3) | 7.11 | 0.18 | |
-| **XSeg vs SAM (segmentation)** | | | |
-| XSeg FP16+CUDA graph | 1.95 | 0.06 | **24.8× faster than SAM** |
+¹ CUDA graph captures only the ViT encoder; total latency is decoder-bound (~48 ms).
+Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-end time at this batch size.
 
-### Custom Triton Kernel Micro-benchmarks
+*Detailed micro-benchmarks available in [`benchmarks/results.md`](benchmarks/results.md).*
 
-| Kernel | Baseline (ms) | Triton (ms) | Speedup |
-|--------|--------------|-------------|---------|
-| LayerNorm-768 (4096 tokens) | 0.142 | 0.098 | **1.45×** |
-| LayerNorm-1280 (4096 tokens) | 0.219 | 0.143 | **1.53×** |
-| LayerNorm+GELU-1280 (fused) | 0.252 | 0.158 | **1.59×** |
-| Window partition (64×64, ws=14) | 0.412 | 0.271 | **1.52×** |
-| Scale+add (1,64,128,128) | 0.063 | 0.039 | **1.62×** |
-| PixelShuffle-2× (1,256,256,256) | 0.831 | 0.512 | **1.62×** |
-| DenseBlock (64ch, 64² spatial) | 3.84 | 2.91 | **1.32×** |
-
-*Expected values on RTX 4090. Run benchmark script for hardware-specific measurements.*
+*Measured on RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124. Run `python benchmarks/benchmark_inference.py` to reproduce.*
 
 ---
 

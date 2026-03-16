@@ -120,9 +120,9 @@ if _TRITON_AVAILABLE:
             ln = (x - mean) * rstd * w + b
             # Tanh GELU approximation
             inner = SQRT2OVERPI * (ln + COEFF * ln * ln * ln)
-            gelu  = ln * 0.5 * (1.0 + tl.libdevice.tanh(inner))
+            # Use extra.cuda.libdevice.tanh for Triton 3.x compatibility
+            gelu  = ln * 0.5 * (1.0 + tl.extra.cuda.libdevice.tanh(inner))
             tl.store(Y_ptr + cols, gelu.to(tl.float16), mask=mask)
-
 
 def _triton_layernorm_impl(
     x: torch.Tensor,
@@ -133,26 +133,221 @@ def _triton_layernorm_impl(
 ) -> torch.Tensor:
     """Low-level dispatch: calls the appropriate Triton kernel."""
     orig_shape = x.shape
-    x_2d = x.contiguous().view(-1, orig_shape[-1])
-    if x_2d.dtype != torch.float16:
-        x_2d = x_2d.to(torch.float16)
+    # Ensure hidden dimension is the last one
+    x_2d = x.view(-1, orig_shape[-1])
     M, N = x_2d.shape
+    
+    # We always use float16 for the Triton kernel processing to match SAM's optimized path
+    # but we handle the case where the input might be float32 by casting
+    target_dtype = torch.float16
+    if x_2d.dtype != target_dtype:
+        x_2d = x_2d.to(target_dtype)
+    
+    if not x_2d.is_contiguous():
+        x_2d = x_2d.contiguous()
+        
     y = torch.empty_like(x_2d)
 
     BLOCK = min(triton.next_power_of_2(N), 1024)
 
+    # Ensure weight and bias are on the same device and are float16
+    w = weight.to(device=x.device, dtype=target_dtype)
+    b = bias.to(device=x.device, dtype=target_dtype)
+
     kernel = _layernorm_gelu_online_fwd if fuse_gelu else _layernorm_online_fwd
     kernel[(M,)](
-        x_2d, y, weight.to(torch.float16), bias.to(torch.float16),
+        x_2d, y, w, b,
         x_2d.stride(0), N, eps,
         BLOCK=BLOCK,
     )
-    return y.view(orig_shape)
+    
+    # If original input was float32, we might want to cast back, 
+    # but SAM usually operates in FP16 for speed. 
+    # We return the same dtype as the input for consistency.
+    out = y.view(orig_shape)
+    if out.dtype != x.dtype:
+        out = out.to(x.dtype)
+    return out
 
 
 # ---------------------------------------------------------------------------
-# PyTorch module wrappers
+# Kernel 2: Fused Linear + GELU (MLP First Layer)
 # ---------------------------------------------------------------------------
+
+if _TRITON_AVAILABLE:
+    @triton.jit
+    def _linear_gelu_fwd(
+        X_ptr, W_ptr, B_ptr, Y_ptr,
+        M, N, K,
+        stride_am, stride_ak,
+        stride_bk, stride_bn,
+        stride_cm, stride_cn,
+        BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+        GROUP_SIZE_M: tl.constexpr,
+    ):
+        """
+        Matrix multiplication: C = GELU(A * B + Bias)
+        A: (M, K), B: (K, N), Bias: (N,), C: (M, N)
+        """
+        pid = tl.program_id(0)
+        num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
+        num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
+        num_pid_in_group = GROUP_SIZE_M * num_pid_n
+        group_id = pid // num_pid_in_group
+        first_pid_m = group_id * GROUP_SIZE_M
+        group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+        pid_m = first_pid_m + (pid % group_size_m)
+        pid_n = (pid % num_pid_in_group) // group_size_m
+
+        offs_am = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
+        offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)) % N
+        offs_k = tl.arange(0, BLOCK_SIZE_K)
+        a_ptr = X_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
+        b_ptr = W_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
+
+        accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+        for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
+            a = tl.load(a_ptr, mask=offs_k[None, :] < K - k * BLOCK_SIZE_K, other=0.0)
+            b = tl.load(b_ptr, mask=offs_k[:, None] < K - k * BLOCK_SIZE_K, other=0.0)
+            accumulator += tl.dot(a, b)
+            a_ptr += BLOCK_SIZE_K * stride_ak
+            b_ptr += BLOCK_SIZE_K * stride_bk
+
+        # Add bias
+        bias = tl.load(B_ptr + offs_bn, mask=offs_bn < N, other=0.0).to(tl.float32)
+        accumulator += bias[None, :]
+
+        # GELU activation (tanh approximation)
+        SQRT2OVERPI: tl.constexpr = 0.7978845608028654
+        COEFF: tl.constexpr = 0.044715
+        
+        x = accumulator
+        inner = SQRT2OVERPI * (x + COEFF * x * x * x)
+        # Use extra.cuda.libdevice.tanh for Triton 3.x compatibility
+        gelu = x * 0.5 * (1.0 + tl.extra.cuda.libdevice.tanh(inner))
+
+        # Store result
+        offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+        offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        c_ptr = Y_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
+        mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
+        tl.store(c_ptr, gelu.to(tl.float16), mask=mask)
+
+def triton_linear_gelu(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
+    """Fused Linear + GELU: y = GELU(x @ weight.T + bias)"""
+    if not (_TRITON_AVAILABLE and x.is_cuda and x.dtype == torch.float16):
+        return F.gelu(F.linear(x, weight, bias), approximate="tanh")
+
+    x_2d = x.view(-1, x.shape[-1])
+    M, K = x_2d.shape
+    N, K_w = weight.shape
+    assert K == K_w, "Incompatible dimensions"
+
+    y = torch.empty((M, N), device=x.device, dtype=torch.float16)
+
+    # Kernel expects weight as (K, N) for column-major access in tl.dot
+    # but SAM weights are (N, K). We pass weight.T or handle strides.
+    # Standard PyTorch linear is x @ weight.T
+    
+    grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
+    
+    _linear_gelu_fwd[grid](
+        x_2d, weight, bias, y,
+        M, N, K,
+        x_2d.stride(0), x_2d.stride(1),
+        weight.stride(1), weight.stride(0), # Transposed access: B is (K, N)
+        y.stride(0), y.stride(1),
+        BLOCK_SIZE_M=64, BLOCK_SIZE_N=64, BLOCK_SIZE_K=32,
+        GROUP_SIZE_M=8,
+    )
+    return y.view(*x.shape[:-1], N)
+
+
+# ---------------------------------------------------------------------------
+# Kernel 3: Fused Linear + Residual Add (MLP Second Layer)
+# ---------------------------------------------------------------------------
+
+if _TRITON_AVAILABLE:
+    @triton.jit
+    def _linear_res_add_fwd(
+        X_ptr, W_ptr, B_ptr, RES_ptr, Y_ptr,
+        M, N, K,
+        stride_am, stride_ak,
+        stride_bk, stride_bn,
+        stride_resm, stride_resn,
+        stride_cm, stride_cn,
+        BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+        GROUP_SIZE_M: tl.constexpr,
+    ):
+        """Matrix multiplication: C = (A * B + Bias) + Residual"""
+        pid = tl.program_id(0)
+        num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
+        num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
+        num_pid_in_group = GROUP_SIZE_M * num_pid_n
+        group_id = pid // num_pid_in_group
+        first_pid_m = group_id * GROUP_SIZE_M
+        group_size_m = min(num_pid_m - first_pid_m, GROUP_SIZE_M)
+        pid_m = first_pid_m + (pid % group_size_m)
+        pid_n = (pid % num_pid_in_group) // group_size_m
+
+        offs_am = (pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
+        offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)) % N
+        offs_k = tl.arange(0, BLOCK_SIZE_K)
+        a_ptr = X_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
+        b_ptr = W_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
+
+        accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+        for k in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
+            a = tl.load(a_ptr, mask=offs_k[None, :] < K - k * BLOCK_SIZE_K, other=0.0)
+            b = tl.load(b_ptr, mask=offs_k[:, None] < K - k * BLOCK_SIZE_K, other=0.0)
+            accumulator += tl.dot(a, b)
+            a_ptr += BLOCK_SIZE_K * stride_ak
+            b_ptr += BLOCK_SIZE_K * stride_bk
+
+        bias = tl.load(B_ptr + offs_bn, mask=offs_bn < N, other=0.0).to(tl.float32)
+        accumulator += bias[None, :]
+
+        # Load and add residual
+        offs_cm = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+        offs_cn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+        res_ptr = RES_ptr + stride_resm * offs_cm[:, None] + stride_resn * offs_cn[None, :]
+        res = tl.load(res_ptr, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N), other=0.0).to(tl.float32)
+        accumulator += res
+
+        # Store result
+        c_ptr = Y_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
+        mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
+        tl.store(c_ptr, accumulator.to(tl.float16), mask=mask)
+
+def triton_linear_res_add(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor, residual: torch.Tensor) -> torch.Tensor:
+    """Fused Linear + Residual Add: y = (x @ weight.T + bias) + residual"""
+    if not (_TRITON_AVAILABLE and x.is_cuda and x.dtype == torch.float16):
+        return F.linear(x, weight, bias) + residual
+
+    x_2d = x.view(-1, x.shape[-1])
+    res_2d = residual.view(-1, residual.shape[-1])
+    M, K = x_2d.shape
+    N, K_w = weight.shape
+    
+    y = torch.empty((M, N), device=x.device, dtype=torch.float16)
+
+    grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
+    
+    _linear_res_add_fwd[grid](
+        x_2d, weight, bias, res_2d, y,
+        M, N, K,
+        x_2d.stride(0), x_2d.stride(1),
+        weight.stride(1), weight.stride(0),
+        res_2d.stride(0), res_2d.stride(1),
+        y.stride(0), y.stride(1),
+        BLOCK_SIZE_M=64, BLOCK_SIZE_N=64, BLOCK_SIZE_K=32,
+        GROUP_SIZE_M=8,
+    )
+    return y.view(*x.shape[:-1], N)
+
+
+# ---------------------------------------------------------------------------
+# Kernel 4: Fused window partition / unpartition (gather / scatter)
 
 class TritonLayerNorm(nn.Module):
     """Drop-in replacement for nn.LayerNorm using the single-pass Triton kernel.

@@ -114,8 +114,15 @@ class PersistentSAMPredictor:
                 except Exception as e:
                     logger.debug("torch.compile failed (%s) — running eager.", e)
 
+            # Patch get_rel_pos for CUDA graph safety before capture
+            try:
+                from app.core.sam_kernels import _patch_rel_pos_for_cuda_graph
+                _patch_rel_pos_for_cuda_graph()
+            except Exception:
+                pass
+
             # CUDA graph capture for the image encoder (fixed 1024×1024 input)
-            if device == "cuda":
+            if self._device == "cuda":
                 self._build_encoder_graph(sam)
 
             self._sam = sam
@@ -148,28 +155,41 @@ class PersistentSAMPredictor:
             static_inp = torch.zeros(1, 3, enc_size, enc_size,
                                      dtype=torch.float32, device=self._device)
 
-            # Warmup (3 runs to stabilise cuDNN algorithm selection)
-            with torch.no_grad():
-                for _ in range(3):
+            # Capture with autocast if use_fp16 so the graph runs in FP16
+            amp_ctx = (torch.amp.autocast("cuda") if self._use_fp16
+                       else _null_ctx())
+
+            # Warmup (5 runs — more than 3 to ensure stable cuDNN selection)
+            with torch.no_grad(), amp_ctx:
+                for _ in range(5):
                     sam.image_encoder(static_inp)
             torch.cuda.synchronize(self._device)
 
             capture_stream = torch.cuda.Stream(device=self._device)
             graph = torch.cuda.CUDAGraph()
 
-            with torch.no_grad(), torch.cuda.graph(
+            with torch.no_grad(), amp_ctx, torch.cuda.graph(
                 graph, stream=capture_stream, capture_error_mode="relaxed"
             ):
                 static_out = sam.image_encoder(static_inp)
             torch.cuda.synchronize(self._device)
 
-            def _encoder_runner(x: torch.Tensor) -> torch.Tensor:
-                static_inp.copy_(x)
-                graph.replay()
-                return static_out.clone()
+            # Wrap in nn.Module so PyTorch 2.6+ module attribute assignment works
+            class _GraphEncoderModule(torch.nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    # Store as non-parameter buffers so they aren't moved by .to()
+                    self.register_buffer("_static_inp", static_inp)
+                    self.register_buffer("_static_out", static_out)
+                    self._graph = graph
+                    self.img_size = enc_size   # keep attribute used elsewhere
 
-            # Monkey-patch the encoder with the graph runner
-            sam.image_encoder = _encoder_runner
+                def forward(self, x: torch.Tensor) -> torch.Tensor:
+                    self._static_inp.copy_(x)
+                    self._graph.replay()
+                    return self._static_out.clone()
+
+            sam.image_encoder = _GraphEncoderModule()
             self._has_encoder_graph = True
             logger.info("SAM image encoder CUDA graph captured (enc_size=%d).", enc_size)
 

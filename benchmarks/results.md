@@ -1,85 +1,52 @@
 # CorbeauSplat Inference Benchmark Results
 
-**Platform:** Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129
-**Runs:** 20 | **Warmup:** 3
-
-> Run `python benchmarks/benchmark_inference.py` on your hardware for actual measurements.
-> Expected values below are based on RTX 4090 characterisation.
-
-## Pipeline Benchmarks (model weights required)
+**Platform:** Windows 11 / RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124  
+**Runs:** 20 | **Warmup:** 3  
 
 | Benchmark | Mean (ms) | Std (ms) | Notes |
 |-----------|-----------|----------|-------|
-| **Chroma Key (1920×1080)** | | | |
-| ChromaKey CPU (OpenCV) | 14.80 | 0.42 | |
-| ChromaKey GPU (PyTorch+kornia) | 1.52 | 0.08 | |
-| ChromaKey GPU batch=16 (per-frame) | 0.31 | 0.02 | |
-| **RealESRGAN (256×256 → 1024×1024)** | | | |
-| ESRGAN PyTorch FP16+compile | 187.40 | 3.21 | |
-| ESRGAN ORT GPU EP | 72.10 | 1.84 | |
-| **SAM (512×512 face)** | | | |
-| SAM vit_b eager FP16 | 48.30 | 1.12 | |
-| SAM vit_b compile+CUDA graph | 41.20 | 0.93 | |
-| **GFPGAN (512×512 face)** | | | |
-| GFPGAN Triton FP16 (Tier 2) | 8.42 | 0.31 | |
-| GFPGAN Triton+CUDA graph (Tier 3) | 7.11 | 0.18 | |
-| **XSeg (512×512 → 256×256 mask)** | | | |
-| XSeg FP16+CUDA graph | 1.95 | 0.06 | |
-
-## Custom Triton Kernel Micro-benchmarks (no weights required)
-
-### SAM — Triton LayerNorm vs PyTorch LayerNorm
-
-| Benchmark | Mean (ms) | Std (ms) | Speedup |
-|-----------|-----------|----------|---------|
-| LayerNorm-768 PyTorch | 0.142 | 0.003 | 1.00× |
-| LayerNorm-768 Triton (single-pass) | 0.098 | 0.002 | **1.45×** |
-| LayerNorm+GELU-768 Triton (fused) | 0.109 | 0.002 | **1.30×** vs LN+GELU separately |
-| LayerNorm-1024 PyTorch | 0.181 | 0.004 | 1.00× |
-| LayerNorm-1024 Triton (single-pass) | 0.121 | 0.003 | **1.50×** |
-| LayerNorm+GELU-1024 Triton (fused) | 0.134 | 0.003 | **1.35×** vs LN+GELU separately |
-| LayerNorm-1280 PyTorch | 0.219 | 0.005 | 1.00× |
-| LayerNorm-1280 Triton (single-pass) | 0.143 | 0.003 | **1.53×** |
-| LayerNorm+GELU-1280 Triton (fused) | 0.158 | 0.004 | **1.38×** vs LN+GELU separately |
-
-### SAM — Triton Window Partition/Unpartition
-
-| Benchmark | Mean (ms) | Std (ms) | Speedup |
-|-----------|-----------|----------|---------|
-| Window partition PyTorch (64×64, ws=14) | 0.412 | 0.011 | 1.00× |
-| Window partition Triton | 0.271 | 0.007 | **1.52×** |
-| Window unpartition Triton | 0.268 | 0.007 | **1.54×** |
-
-### ESRGAN — Triton Ops vs PyTorch
-
-| Benchmark | Mean (ms) | Std (ms) | Speedup |
-|-----------|-----------|----------|---------|
-| scale_add PyTorch (1,64,128,128) | 0.063 | 0.001 | 1.00× |
-| scale_add Triton fused | 0.039 | 0.001 | **1.62×** |
-| LeakyReLU PyTorch inplace | 0.058 | 0.001 | 1.00× |
-| LeakyReLU Triton inplace | 0.041 | 0.001 | **1.41×** |
-| PixelShuffle-2× PyTorch (1,256,256,256) | 0.831 | 0.018 | 1.00× |
-| PixelShuffle-2× Triton | 0.512 | 0.012 | **1.62×** |
-| DenseBlock basicsr (cat-based, 64ch) | 3.84 | 0.09 | 1.00× |
-| DenseBlock MemEfficient (pre-alloc) | 2.91 | 0.07 | **1.32×** |
-
-## End-to-End with Triton Injection
-
-| Benchmark | Mean (ms) | Std (ms) | Speedup vs baseline |
-|-----------|-----------|----------|---------------------|
-| SAM vit_b compile+CUDA graph (baseline) | 41.20 | 0.93 | 1.00× |
-| SAM vit_b +Triton LayerNorm+WindowOps | 33.80 | 0.74 | **1.22×** |
-| ESRGAN FP16+compile (baseline) | 187.40 | 3.21 | 1.00× |
-| ESRGAN FP16+compile+Triton | 151.10 | 2.58 | **1.24×** |
-
-## Summary: Cumulative Speedup Stack
-
-| Stage | Baseline | After All Optimizations | Total Speedup |
-|-------|----------|------------------------|---------------|
-| Chroma key (1080p) | 14.80 ms (CPU) | 0.31 ms (GPU batch) | **47.7×** |
-| ESRGAN (256² tile) | 187.40 ms | 57.80 ms (ORT TRT + Triton) | **3.24×** |
-| SAM vit_b (512²) | 48.30 ms | 33.80 ms (CUDA graph + Triton) | **1.43×** |
-| GFPGAN (512²) | ~30 ms (stock) | 7.11 ms (Triton+CUDA graph) | **4.22×** |
-| XSeg vs SAM | 48.30 ms | 1.95 ms | **24.8×** |
+| **Chroma Key (1920x1080)** | | | |
+| ChromaKey CPU (OpenCV) | 8.46 | 0.24 |  |
+| ChromaKey GPU (PyTorch+kornia) | 4.97 | 0.89 |  |
+| ChromaKey GPU batch=16 (per-frame) | 4.65 | 0.51 |  |
+| **RealESRGAN (256x256 -> 1024x1024)** | | | |
+| ESRGAN (weights missing) | - | - | download first |
+| **GFPGAN (512x512 face)** | | | |
+| GFPGAN (weights missing) | - | - | auto-downloads on use |
+| **XSeg (512x512 segmentation mask)** | | | |
+| XSeg (weights missing) | - | - | skipped |
+| **Micro: LayerNorm (4096 tokens)** | | | |
+| LayerNorm-768 PyTorch | 0.04 | 0.01 |  |
+| LayerNorm-768 Triton | 0.13 | 0.01 |  |
+| LayerNorm-768 CUDA ext | 0.04 | 0.01 |  |
+| LayerNorm+GELU-768 Triton fused | 0.06 | 0.00 |  |
+| LayerNorm+GELU-768 CUDA ext fused | 0.02 | 0.00 |  |
+| LayerNorm-1024 PyTorch | 0.02 | 0.00 |  |
+| LayerNorm-1024 Triton | 0.06 | 0.00 |  |
+| LayerNorm-1024 CUDA ext | 0.02 | 0.00 |  |
+| LayerNorm+GELU-1024 Triton fused | 0.06 | 0.00 |  |
+| LayerNorm+GELU-1024 CUDA ext fused | 0.02 | 0.00 |  |
+| LayerNorm-1280 PyTorch | 0.03 | 0.00 |  |
+| LayerNorm-1280 Triton | 0.06 | 0.00 |  |
+| LayerNorm-1280 CUDA ext | 0.03 | 0.00 |  |
+| LayerNorm+GELU-1280 Triton fused | 0.07 | 0.00 |  |
+| LayerNorm+GELU-1280 CUDA ext fused | 0.03 | 0.00 |  |
+| **Micro: Window ops (56x56, ws=14)** | | | |
+| Window partition PyTorch | 0.02 | 0.00 |  |
+| Window partition Triton | 0.05 | 0.01 |  |
+| Window partition CUDA ext (float4) | 0.03 | 0.01 |  |
+| Window unpartition CUDA ext (float4) | 0.03 | 0.01 |  |
+| **Micro: ESRGAN ops** | | | |
+| scale_add PyTorch | 0.04 | 0.00 |  |
+| scale_add Triton | 0.04 | 0.01 |  |
+| LeakyReLU+scale_add CUDA ext (fused) | 0.04 | 0.02 |  |
+| PixelShuffle-2x PyTorch | 0.07 | 0.02 |  |
+| PixelShuffle-2x Triton | 0.07 | 0.00 |  |
+| PixelShuffle-2x CUDA ext | 0.07 | 0.00 |  |
+| DenseBlock MemEfficient (Triton+CUDA) | 0.87 | 0.21 |  |
+| **SAM vit_b (512x512 frame)** | | | |
+| SAM vit_b eager FP16 | 48.06 | 2.37 |  |
+| SAM vit_b CUDA graph (encoder) | 48.53 | 1.56 | CUDA graph on encoder; decoder runs eager |
+| SAM vit_b +Flash+LN+WindowOps | 48.67 | 0.53 |  |
 
 *Generated by `benchmarks/benchmark_inference.py`*
