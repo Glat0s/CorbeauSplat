@@ -1,3 +1,12 @@
+[project]
+name = "corbeausplat"
+version = "0.9.0"
+description = "3D Gaussian Splatting pipeline for Windows"
+requires-python = ">=3.11"
+
+[project.scripts]
+corbeausplat-setup = "app.scripts.setup:main"
+
 [tool.uv]
 index-url = "https://pypi.org/simple"
 extra-index-url = ["https://download.pytorch.org/whl/cu129"]

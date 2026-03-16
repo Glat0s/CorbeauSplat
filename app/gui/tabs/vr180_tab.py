@@ -1,16 +1,13 @@
 """
 VR 180 green-screen segmentation settings tab.
 
-Shown when the user selects "VR 180" mode in the Config tab.
 Provides controls for:
   - VR format (SBS / Top-Bottom)
   - Eye selection (Left / Right)
   - Chroma-key tuning
   - SAM (Segment Anything) optional refinement
-  - SAM checkpoint download / path
 """
 
-from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -18,9 +15,6 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
     QRadioButton,
     QSpinBox,
     QVBoxLayout,
@@ -31,55 +25,11 @@ from app.core.i18n import add_language_observer, tr
 from app.core.system import resolve_project_root
 
 
-class SAMDownloadWorker(QThread):
-    """Downloads the SAM checkpoint in a background thread."""
-
-    progress_signal = pyqtSignal(int)
-    finished_signal = pyqtSignal(bool, str)
-
-    # vit_b is the smallest/fastest model (~375 MB)
-    CHECKPOINT_URLS = {
-        "vit_b": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
-        "vit_l": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth",
-        "vit_h": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth",
-    }
-
-    def __init__(self, model_type: str, dest_path: str):
-        super().__init__()
-        self.model_type = model_type
-        self.dest_path = dest_path
-
-    def run(self):
-        import urllib.request
-        from pathlib import Path
-
-        url = self.CHECKPOINT_URLS.get(self.model_type)
-        if not url:
-            self.finished_signal.emit(False, f"Unknown model type: {self.model_type}")
-            return
-
-        dest = Path(self.dest_path)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-
-        def _reporthook(block, block_size, total):
-            if total > 0:
-                pct = min(99, int(block * block_size / total * 100))
-                self.progress_signal.emit(pct)
-
-        try:
-            urllib.request.urlretrieve(url, str(dest), reporthook=_reporthook)
-            self.progress_signal.emit(100)
-            self.finished_signal.emit(True, str(dest))
-        except Exception as e:
-            self.finished_signal.emit(False, str(e))
-
-
 class VR180Tab(QWidget):
     """Settings panel for VR 180 green-screen processing."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._download_worker = None
         self._init_ui()
         add_language_observer(self.retranslate_ui)
 
@@ -155,7 +105,6 @@ class VR180Tab(QWidget):
         grp_chroma = QGroupBox(tr("vr180_grp_chroma", "Green Screen (Chroma Key)"))
         chroma_layout = QVBoxLayout(grp_chroma)
 
-        # Hue Centre
         row = QHBoxLayout()
         self.lbl_hue = QLabel(tr("vr180_lbl_hue", "Hue centre (HSV 0–180):"))
         row.addWidget(self.lbl_hue)
@@ -167,7 +116,6 @@ class VR180Tab(QWidget):
         row.addStretch()
         chroma_layout.addLayout(row)
 
-        # Hue Range
         row = QHBoxLayout()
         self.lbl_hue_range = QLabel(tr("vr180_lbl_hue_range", "Hue tolerance (±):"))
         row.addWidget(self.lbl_hue_range)
@@ -178,7 +126,6 @@ class VR180Tab(QWidget):
         row.addStretch()
         chroma_layout.addLayout(row)
 
-        # Saturation min
         row = QHBoxLayout()
         self.lbl_sat = QLabel(tr("vr180_lbl_sat", "Min saturation (0–255):"))
         row.addWidget(self.lbl_sat)
@@ -189,7 +136,6 @@ class VR180Tab(QWidget):
         row.addStretch()
         chroma_layout.addLayout(row)
 
-        # Value min
         row = QHBoxLayout()
         self.lbl_val = QLabel(tr("vr180_lbl_val", "Min value/brightness (0–255):"))
         row.addWidget(self.lbl_val)
@@ -213,7 +159,7 @@ class VR180Tab(QWidget):
             tr(
                 "vr180_tip_sam",
                 "Uses Meta's Segment Anything Model to produce a cleaner person mask.\n"
-                "Requires the SAM checkpoint file and takes longer to process.",
+                "Requires the SAM checkpoint (downloaded automatically on first setup).",
             )
         )
         self.check_use_sam.toggled.connect(self._update_sam_group)
@@ -249,20 +195,10 @@ class VR180Tab(QWidget):
         row.addStretch()
         sam_layout.addLayout(row)
 
-        # Checkpoint status + download
-        dl_row = QHBoxLayout()
+        # Checkpoint status (read-only — downloaded by setup)
         self.lbl_sam_status = QLabel("❌ Not downloaded")
-        self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold;")
-        dl_row.addWidget(self.lbl_sam_status)
-        self.btn_download_sam = QPushButton(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
-        self.btn_download_sam.clicked.connect(self._download_sam)
-        dl_row.addWidget(self.btn_download_sam)
-        dl_row.addStretch()
-        sam_layout.addLayout(dl_row)
-
-        self.sam_progress = QProgressBar()
-        self.sam_progress.setVisible(False)
-        sam_layout.addWidget(self.sam_progress)
+        self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold; padding: 2px 0;")
+        sam_layout.addWidget(self.lbl_sam_status)
 
         # Device
         row = QHBoxLayout()
@@ -278,12 +214,10 @@ class VR180Tab(QWidget):
         layout.addWidget(grp_sam)
         layout.addStretch()
 
-        # Keep references to SAM-dependent widgets for enable/disable
         self._sam_widgets = [
             self.lbl_sam_model,
             self.combo_sam_model,
             self.lbl_sam_status,
-            self.btn_download_sam,
             self.lbl_device,
             self.combo_device,
         ]
@@ -299,47 +233,15 @@ class VR180Tab(QWidget):
             w.setEnabled(enabled)
 
     def _update_sam_status(self):
-        """Refreshes the checkpoint status label for the selected model."""
+        """Refresh the checkpoint status label for the selected model."""
         model_type = self.combo_sam_model.currentData()
         dest = resolve_project_root() / "engines" / f"sam_{model_type}.pth"
         if dest.exists():
             self.lbl_sam_status.setText("✅ Checkpoint ready")
-            self.lbl_sam_status.setStyleSheet("color: #44cc44; font-weight: bold;")
-            self.btn_download_sam.setText(tr("vr180_btn_redownload_sam", "Re-download"))
+            self.lbl_sam_status.setStyleSheet("color: #44cc44; font-weight: bold; padding: 2px 0;")
         else:
-            self.lbl_sam_status.setText("❌ Not downloaded")
-            self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold;")
-            self.btn_download_sam.setText(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
-
-    def _download_sam(self):
-        model_type = self.combo_sam_model.currentData()
-        dest = resolve_project_root() / "engines" / f"sam_{model_type}.pth"
-
-        self.btn_download_sam.setEnabled(False)
-        self.sam_progress.setVisible(True)
-        self.sam_progress.setValue(0)
-
-        self._download_worker = SAMDownloadWorker(model_type, str(dest))
-        self._download_worker.progress_signal.connect(self.sam_progress.setValue)
-        self._download_worker.finished_signal.connect(self._on_download_finished)
-        self._download_worker.start()
-
-    def _on_download_finished(self, success: bool, message: str):
-        self.btn_download_sam.setEnabled(True)
-        self.sam_progress.setVisible(False)
-        self._update_sam_status()
-        if success:
-            QMessageBox.information(
-                self,
-                tr("msg_success", "OK"),
-                tr("vr180_download_ok", f"SAM checkpoint downloaded:\n{message}"),
-            )
-        else:
-            QMessageBox.critical(
-                self,
-                tr("msg_error", "Error"),
-                tr("vr180_download_err", f"Download failed:\n{message}"),
-            )
+            self.lbl_sam_status.setText("❌ Not downloaded — re-run setup to download")
+            self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold; padding: 2px 0;")
 
     # ------------------------------------------------------------------
     # State management
@@ -387,6 +289,7 @@ class VR180Tab(QWidget):
             idx = self.combo_sam_model.findData(params["sam_model_type"])
             if idx >= 0:
                 self.combo_sam_model.setCurrentIndex(idx)
+            self._update_sam_status()
         if "device" in params:
             idx = self.combo_device.findData(params["device"])
             if idx >= 0:
@@ -426,7 +329,6 @@ class VR180Tab(QWidget):
             tr("vr180_check_sam", "Enable SAM (Segment Anything) refinement")
         )
         self.lbl_sam_model.setText(tr("vr180_lbl_sam_model", "SAM model:"))
-        self.btn_download_sam.setText(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
-        self._update_sam_status()
         self.lbl_device.setText(tr("vr180_lbl_device", "Compute device:"))
         self.lbl_batch.setText(tr("vr180_lbl_batch", "GPU batch size:"))
+        self._update_sam_status()

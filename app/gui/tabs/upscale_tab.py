@@ -1,14 +1,9 @@
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QApplication,
     QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
     QLabel,
-    QMessageBox,
-    QProgressDialog,
-    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -16,12 +11,12 @@ from PyQt6.QtWidgets import (
 
 from app.core.i18n import add_language_observer, tr
 from app.core.upscale_engine import UpscaleEngine
-from app.scripts.setup_dependencies import install_upscale, uninstall_upscale
 
 
 class UpscaleTab(QWidget):
     """
-    Tab for Upscale Configuration & Management.
+    Tab for Upscale configuration.
+    Dependencies and models are installed by the first-run setup.
     """
 
     def __init__(self, parent=None):
@@ -33,7 +28,6 @@ class UpscaleTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        # Header
         self.lbl_title = QLabel(tr("upscale_title"))
         self.lbl_title.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
         layout.addWidget(self.lbl_title)
@@ -42,12 +36,6 @@ class UpscaleTab(QWidget):
         self.lbl_desc.setWordWrap(True)
         self.lbl_desc.setStyleSheet("color: #aaa; margin-bottom: 5px;")
         layout.addWidget(self.lbl_desc)
-
-        # Activation / Installation
-        self.chk_activate = QCheckBox(tr("upscale_activate"))
-        self.chk_activate.setStyleSheet("font-weight: bold; padding: 5px;")
-        self.chk_activate.clicked.connect(self.on_toggle_activation)
-        layout.addWidget(self.chk_activate)
 
         # Settings Group
         self.settings_group = QGroupBox(tr("upscale_group_settings"))
@@ -72,16 +60,12 @@ class UpscaleTab(QWidget):
         self.lbl_status = QLabel(tr("upscale_lbl_status"))
         form_layout.addRow(self.lbl_status, self.status_label)
 
-        # Download Button (Visible only if missing)
-        self.btn_download = QPushButton(tr("upscale_btn_download"))
-        self.btn_download.clicked.connect(self.download_current_model)
-        self.btn_download.setVisible(False)
-        form_layout.addRow("", self.btn_download)
+        # Scale Factor
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(
             [tr("upscale_scale_x4"), tr("upscale_scale_x2"), tr("upscale_scale_x1")]
         )
-        self.scale_combo.setCurrentIndex(2)  # Default to x1 (Enhance only)
+        self.scale_combo.setCurrentIndex(2)  # Default: x1 (enhance only)
         self.scale_combo.setToolTip(tr("upscale_tip_scale"))
         self.lbl_scale = QLabel(tr("upscale_lbl_scale"))
         form_layout.addRow(self.lbl_scale, self.scale_combo)
@@ -100,13 +84,12 @@ class UpscaleTab(QWidget):
         self.profile_combo.setToolTip(tr("upscale_tip_profile"))
         self.lbl_profile = QLabel(tr("upscale_lbl_profile"))
         form_layout.addRow(self.lbl_profile, self.profile_combo)
-
         self.profile_combo.currentIndexChanged.connect(self.on_profile_changed)
 
-        # Tile Size (Memory management)
+        # Tile Size
         self.tile_spin = QSpinBox()
         self.tile_spin.setRange(0, 4096)
-        self.tile_spin.setValue(512)  # Default to 512 for safety on Air/8GB
+        self.tile_spin.setValue(512)
         self.tile_spin.setSingleStep(128)
         self.tile_spin.setSuffix(" px")
         self.tile_spin.setToolTip(tr("upscale_tip_tile"))
@@ -114,12 +97,12 @@ class UpscaleTab(QWidget):
         self.lbl_tile = QLabel(tr("upscale_lbl_tile"))
         form_layout.addRow(self.lbl_tile, self.tile_spin)
 
-        # Face Enhance Option
+        # Face Enhance
         self.face_enhance = QCheckBox(tr("upscale_check_face"))
         self.face_enhance.setToolTip(tr("upscale_tip_face"))
         form_layout.addRow("", self.face_enhance)
 
-        # GFPGAN backend selector
+        # GFPGAN backend
         self.lbl_gfpgan_backend = QLabel(tr("upscale_lbl_gfpgan_backend", "GFPGAN backend:"))
         self.combo_gfpgan_backend = QComboBox()
         self.combo_gfpgan_backend.addItem("Triton + CUDA Graph (fastest)", "cuda_graph")
@@ -130,7 +113,7 @@ class UpscaleTab(QWidget):
         )
         form_layout.addRow(self.lbl_gfpgan_backend, self.combo_gfpgan_backend)
 
-        # RealESRGAN inference backend
+        # ESRGAN backend
         self.lbl_esrgan_backend = QLabel(tr("upscale_lbl_esrgan_backend", "ESRGAN backend:"))
         self.combo_esrgan_backend = QComboBox()
         self.combo_esrgan_backend.addItem("ORT TensorRT (fastest, requires build)", "ort_trt")
@@ -146,59 +129,47 @@ class UpscaleTab(QWidget):
         )
         form_layout.addRow(self.lbl_esrgan_backend, self.combo_esrgan_backend)
 
-        # FP16 Option
+        # FP16
         self.fp16_check = QCheckBox(tr("upscale_lbl_fp16"))
         self.fp16_check.setToolTip(tr("upscale_tip_fp16"))
-        self.fp16_check.setChecked(True)  # Default true for mac
+        self.fp16_check.setChecked(True)
         self.fp16_check.toggled.connect(self.on_manual_change)
         self.lbl_fp16 = QLabel(tr("upscale_lbl_fp16"))
         form_layout.addRow(self.lbl_fp16, self.fp16_check)
 
         self.settings_group.setLayout(form_layout)
         layout.addWidget(self.settings_group)
-
         layout.addStretch()
 
-        # Initial State Check
-        # Always enabled now
-        self.settings_group.setEnabled(True)
-        # Check dependencies just for status label, but don't block
-        if not self.engine.is_installed():
-            self.status_label.setText(tr("upscale_status_deps_missing"))
-            # self.settings_group.setEnabled(False) # Let user try anyway/debug
-
+        self._updating_profile = False
         self.on_model_changed()
 
-        self._updating_profile = False
+    # ------------------------------------------------------------------
+    # Slots
+    # ------------------------------------------------------------------
 
     def on_profile_changed(self):
         if self._updating_profile:
             return
-
-        idx = self.profile_combo.currentIndex()
         self._updating_profile = True
-
+        idx = self.profile_combo.currentIndex()
         if idx == 0:  # Safe
             self.tile_spin.setValue(512)
             self.fp16_check.setChecked(True)
         elif idx == 1:  # Quality Max
             self.tile_spin.setValue(512)
             self.fp16_check.setChecked(False)
-        elif idx == 2:  # Speed (High VRAM)
+        elif idx == 2:  # Speed
             self.tile_spin.setValue(0)
             self.fp16_check.setChecked(True)
         elif idx == 3:  # Ultimate
             self.tile_spin.setValue(0)
             self.fp16_check.setChecked(False)
-
         self._updating_profile = False
 
     def on_manual_change(self):
-        if self._updating_profile:
-            return
-        # Switch to Custom if parameters don't match current profile
-        # Simple approach: just switch to Custom whenever user touches controls
-        self.profile_combo.setCurrentIndex(4)  # Custom
+        if not self._updating_profile:
+            self.profile_combo.setCurrentIndex(4)  # Custom
 
     def on_model_changed(self):
         self.update_model_desc()
@@ -216,151 +187,21 @@ class UpscaleTab(QWidget):
         self.model_desc.setText(desc)
 
     def check_model_status(self):
-        if not self.engine.is_installed():
-            self.status_label.setText(tr("upscale_status_not_installed"))
-            return
-
         model = self.model_combo.currentText()
         if self.engine.check_model_availability(model):
             self.status_label.setText(tr("upscale_status_available"))
-            self.status_label.setStyleSheet("color: green;")
-            self.btn_download.setVisible(False)
+            self.status_label.setStyleSheet("color: #44cc44;")
         else:
             self.status_label.setText(tr("upscale_status_missing_model"))
-            self.status_label.setStyleSheet("color: orange;")
-            self.btn_download.setVisible(True)
+            self.status_label.setStyleSheet("color: #cc8844;")
 
-    def download_current_model(self):
-        model = self.model_combo.currentText()
-
-        progress = QProgressDialog(
-            tr("upscale_msg_downloading", model), tr("btn_cancel"), 0, 0, self
-        )
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.show()
-
-        def log_cb(line):
-            # We could pipe logs here
-            pass
-
-        # Run download in main thread for simplicity (files are ~100MB, might freeze GUI briefly without thread)
-        # Ideally threading, but UpscaleEngine.download_model is blocking 'urllib'.
-        # Let's hope user has fiber, otherwise we should use a worker.
-        # Check UpscaleEngine again, I used urllib.request.urlretrieve. It blocks.
-        # But I added a (broken in my head) progress callback logic which I didn't fully implement.
-        # For now, let's just run it.
-
-        QApplication.processEvents()
-        success = self.engine.download_model(model)
-        progress.close()
-
-        if success:
-            QMessageBox.information(self, tr("msg_success"), tr("upscale_msg_success_download"))
-            self.check_model_status()
-        else:
-            QMessageBox.critical(self, tr("msg_error"), tr("upscale_msg_err_download"))
-
-    def on_toggle_activation(self):
-        if self.chk_activate.isChecked():
-            # Activation requested
-            if not self.engine.is_installed():
-                reply = QMessageBox.question(
-                    self,
-                    tr("upscale_install_required"),
-                    tr("upscale_install_confirm"),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                )
-
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.install_deps()
-                else:
-                    self.chk_activate.setChecked(False)
-            else:
-                self.settings_group.setEnabled(True)
-        else:
-            # Deactivation requested
-            reply = QMessageBox.question(
-                self,
-                tr("upscale_deactivate_title"),
-                tr("upscale_deactivate_msg"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-
-            if reply == QMessageBox.StandardButton.Yes:
-                self.uninstall_deps()
-            else:
-                # If user cancels uninstall, do we keep it checked?
-                # User request: "Une fois décoché, il supprime..."
-                # If they say no, maybe they just want to disable without uninstalling?
-                # "Quand c'est décoché, le contenu... est grisée".
-                # So we can allow uncheck without uninstall if we want, OR enforce it.
-                # Use case: "Une fois décoché, il supprime les programmes". Explicit.
-                # So if they say No to uninstall, we probably should cancel the uncheck action (re-check it),
-                # OR we accept uncheck but don't uninstall (just disable UI).
-                # Let's assume strict compliance: "Une fois décoché, il supprime".
-                # But typically users might just want to disable to save startup time without deleting files.
-                # Let's offer: "Oui (Supprimer fichiers)", "Non (Désactiver seulement)", "Annuler".
-                # For now, simple Yes/No.
-                # If No, we just disable UI but keep files.
-                self.settings_group.setEnabled(False)
-
-    def install_deps(self):
-        progress = QProgressDialog(tr("upscale_installing_progress"), tr("btn_cancel"), 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.show()
-        QApplication.processEvents()
-
-        try:
-            # install_upscale_deps uses subprocess check_call, so it blocks.
-            # We pass None as version file as it's pip managed mostly or we don't care about version file for pip packages primarily here.
-            # setup_dependencies.py: install_upscale_deps(engines_dir, version_file...)
-            # But wait, my import might be tricky if paths are relative.
-            # We assume imports work.
-
-            # We need engines_dir.
-            # We can get it from engine instance or resolve it.
-            # UpscaleEngine doesn't expose it easily?
-            # setup_dependencies has resolve_project_root.
-            # We can just pass a dummy path if it resolves internally?
-            # install_upscale_deps(engines_dir, version_file)
-
-            success = install_upscale()
-
-            if success:
-                QMessageBox.information(self, tr("msg_success"), tr("upscale_install_done"))
-                self.settings_group.setEnabled(True)
-                self.check_model_status()
-            else:
-                QMessageBox.critical(self, tr("msg_error"), tr("upscale_install_failed"))
-                self.chk_activate.setChecked(False)
-                self.settings_group.setEnabled(False)
-
-        except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), tr("err_delete_failed", e))
-            self.chk_activate.setChecked(False)
-        finally:
-            progress.close()
-
-    def uninstall_deps(self):
-        progress = QProgressDialog(tr("upscale_uninstalling_progress"), None, 0, 0, self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.show()
-        QApplication.processEvents()
-
-        try:
-            success = uninstall_upscale()
-            if success:
-                QMessageBox.information(self, tr("msg_success"), tr("upscale_uninstall_done"))
-                self.settings_group.setEnabled(False)
-                self.status_label.setText(tr("upscale_status_not_installed"))
-        except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), f"Error: {e}")
-        finally:
-            progress.close()
+    # ------------------------------------------------------------------
+    # State management
+    # ------------------------------------------------------------------
 
     def get_params(self):
         return {
-            "enabled": self.chk_activate.isChecked(),
+            "enabled": True,
             "model_name": self.model_combo.currentText(),
             "tile": self.tile_spin.value(),
             "target_scale": self.get_scale_factor(),
@@ -381,9 +222,6 @@ class UpscaleTab(QWidget):
     def set_params(self, params):
         if not params:
             return
-        if "enabled" in params:
-            self.chk_activate.setChecked(params["enabled"])
-            self.settings_group.setEnabled(params["enabled"])
         if "tile" in params:
             self.tile_spin.setValue(params["tile"])
         if "fp16" in params:
@@ -406,30 +244,23 @@ class UpscaleTab(QWidget):
         self.set_params(state)
 
     def retranslate_ui(self):
-        """Update texts when language changes"""
         self.lbl_title.setText(tr("upscale_title"))
         self.lbl_desc.setText(tr("upscale_desc"))
-        self.chk_activate.setText(tr("upscale_activate"))
         self.settings_group.setTitle(tr("upscale_group_settings"))
         self.lbl_model.setText(tr("upscale_lbl_model"))
         self.lbl_status.setText(tr("upscale_lbl_status"))
-        self.btn_download.setText(tr("upscale_btn_download"))
         self.lbl_scale.setText(tr("upscale_lbl_scale"))
         self.scale_combo.setToolTip(tr("upscale_tip_scale"))
         self.scale_combo.setItemText(0, tr("upscale_scale_x4"))
         self.scale_combo.setItemText(1, tr("upscale_scale_x2"))
         self.scale_combo.setItemText(2, tr("upscale_scale_x1"))
-
-        self.lbl_profile.setText(tr("upscale_lbl_profile", "Profil Performance"))
-        # Update profile combo items if localized
-
+        self.lbl_profile.setText(tr("upscale_lbl_profile", "Performance Profile"))
         self.lbl_tile.setText(tr("upscale_lbl_tile"))
         self.tile_spin.setToolTip(tr("upscale_tip_tile"))
         self.face_enhance.setText(tr("upscale_check_face"))
         self.face_enhance.setToolTip(tr("upscale_tip_face"))
-        self.lbl_fp16.setText(tr("upscale_lbl_fp16", "Demi-précision (FP16)"))
+        self.lbl_fp16.setText(tr("upscale_lbl_fp16"))
         self.lbl_gfpgan_backend.setText(tr("upscale_lbl_gfpgan_backend", "GFPGAN backend:"))
         self.lbl_esrgan_backend.setText(tr("upscale_lbl_esrgan_backend", "ESRGAN backend:"))
-
         self.check_model_status()
         self.update_model_desc()
