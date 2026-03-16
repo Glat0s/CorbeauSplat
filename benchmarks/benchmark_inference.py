@@ -216,6 +216,219 @@ def bench_xseg(runs: int, warmup: int, device: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────
+# Standalone Triton kernel micro-benchmarks (no model weights needed)
+# ─────────────────────────────────────────────────────────────────
+
+def bench_triton_layernorm(runs: int, warmup: int, device: str) -> list[dict]:
+    """TritonLayerNorm vs nn.LayerNorm on typical SAM hidden dimensions."""
+    results = []
+    if device != "cuda":
+        return results
+    try:
+        import torch
+        import torch.nn as nn
+        from app.core.vendor.sam_triton_kernels import TritonLayerNorm
+
+        for dim in (768, 1024, 1280):  # ViT-B / ViT-L / ViT-H embed dims
+            # Batch of 4096 tokens (64×64 feature map, 1 image)
+            x = torch.randn(4096, dim, device=device, dtype=torch.float16)
+
+            # Baseline: PyTorch nn.LayerNorm
+            ln_pt = nn.LayerNorm(dim, eps=1e-6).to(device).half()
+            mean, std = timeit(lambda: ln_pt(x), runs, warmup)
+            results.append({"name": f"LayerNorm-{dim} PyTorch", "mean_ms": mean, "std_ms": std})
+
+            # Triton single-pass
+            ln_tri = TritonLayerNorm(dim, eps=1e-6).to(device)
+            ln_tri.weight.data.copy_(ln_pt.weight.data)
+            ln_tri.bias.data.copy_(ln_pt.bias.data)
+            mean, std = timeit(lambda: ln_tri(x), runs, warmup)
+            results.append({"name": f"LayerNorm-{dim} Triton (single-pass)", "mean_ms": mean, "std_ms": std})
+
+            # Triton + fused GELU
+            ln_gelu = TritonLayerNorm(dim, eps=1e-6, fuse_gelu=True).to(device)
+            ln_gelu.weight.data.copy_(ln_pt.weight.data)
+            ln_gelu.bias.data.copy_(ln_pt.bias.data)
+            mean, std = timeit(lambda: ln_gelu(x), runs, warmup)
+            results.append({"name": f"LayerNorm+GELU-{dim} Triton (fused)", "mean_ms": mean, "std_ms": std})
+
+    except Exception as e:
+        results.append({"name": "Triton LayerNorm", "mean_ms": -1, "std_ms": 0, "error": str(e)})
+    return results
+
+
+def bench_triton_window_ops(runs: int, warmup: int, device: str) -> list[dict]:
+    """Triton window partition/unpartition vs PyTorch permute+reshape."""
+    results = []
+    if device != "cuda":
+        return results
+    try:
+        import torch
+        from app.core.vendor.sam_triton_kernels import triton_window_partition, triton_window_unpartition
+
+        # Typical SAM ViT-B feature map: (1, 64, 64, 768)
+        B, H, W, C = 1, 64, 64, 768
+        x = torch.randn(B, H, W, C, device=device, dtype=torch.float16)
+        window_size = 14  # SAM default
+
+        # PyTorch baseline (SAM's original implementation)
+        def pt_partition(t):
+            t2 = t.view(B, H // window_size, window_size, W // window_size, window_size, C)
+            return t2.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
+
+        mean, std = timeit(lambda: pt_partition(x), runs, warmup)
+        results.append({"name": "Window partition PyTorch", "mean_ms": mean, "std_ms": std})
+
+        mean, std = timeit(lambda: triton_window_partition(x, window_size), runs, warmup)
+        results.append({"name": "Window partition Triton", "mean_ms": mean, "std_ms": std})
+
+        windows, hw = triton_window_partition(x, window_size)
+        mean, std = timeit(lambda: triton_window_unpartition(windows, window_size, hw), runs, warmup)
+        results.append({"name": "Window unpartition Triton", "mean_ms": mean, "std_ms": std})
+
+    except Exception as e:
+        results.append({"name": "Triton window ops", "mean_ms": -1, "std_ms": 0, "error": str(e)})
+    return results
+
+
+def bench_triton_esrgan_ops(runs: int, warmup: int, device: str) -> list[dict]:
+    """ESRGAN Triton ops: scale_add, leakyrelu, pixel_shuffle, MemEfficientDenseBlock."""
+    results = []
+    if device != "cuda":
+        return results
+    try:
+        import torch
+        import torch.nn.functional as F
+        from app.core.vendor.esrgan_triton_kernels import (
+            triton_scale_add, triton_leakyrelu_inplace,
+            triton_pixel_shuffle_2x, MemEfficientDenseBlock,
+        )
+
+        # --- scale_add (fused x*0.2 + residual) ---
+        # Typical RRDB output: (1, 64, 128, 128)
+        x  = torch.randn(1, 64, 128, 128, device=device, dtype=torch.float16)
+        r  = torch.randn_like(x)
+
+        mean, std = timeit(lambda: x * 0.2 + r, runs, warmup)
+        results.append({"name": "scale_add PyTorch", "mean_ms": mean, "std_ms": std})
+
+        mean, std = timeit(lambda: triton_scale_add(x, r, 0.2), runs, warmup)
+        results.append({"name": "scale_add Triton (fused)", "mean_ms": mean, "std_ms": std})
+
+        # --- leakyrelu_inplace ---
+        a = torch.randn(1, 64, 128, 128, device=device, dtype=torch.float16)
+
+        mean, std = timeit(lambda: F.leaky_relu_(a.clone(), negative_slope=0.2), runs, warmup)
+        results.append({"name": "LeakyReLU PyTorch inplace", "mean_ms": mean, "std_ms": std})
+
+        mean, std = timeit(lambda: triton_leakyrelu_inplace(a.clone(), 0.2), runs, warmup)
+        results.append({"name": "LeakyReLU Triton inplace", "mean_ms": mean, "std_ms": std})
+
+        # --- pixel_shuffle 2× ---
+        # After last ESRGAN conv: (1, 256, 256, 256) → (1, 64, 512, 512)
+        ps_in = torch.randn(1, 256, 256, 256, device=device, dtype=torch.float16)
+
+        mean, std = timeit(lambda: F.pixel_shuffle(ps_in, 2), runs, warmup)
+        results.append({"name": "PixelShuffle-2× PyTorch", "mean_ms": mean, "std_ms": std})
+
+        mean, std = timeit(lambda: triton_pixel_shuffle_2x(ps_in), runs, warmup)
+        results.append({"name": "PixelShuffle-2× Triton", "mean_ms": mean, "std_ms": std})
+
+        # --- MemEfficientDenseBlock vs cat-based forward ---
+        try:
+            from basicsr.archs.rrdbnet_arch import ResidualDenseBlock
+            rdb_orig = ResidualDenseBlock(num_feat=64, num_grow_ch=32).to(device).half()
+            rdb_eff  = MemEfficientDenseBlock.from_module(rdb_orig).to(device).half()
+            feat = torch.randn(1, 64, 64, 64, device=device, dtype=torch.float16)
+
+            mean, std = timeit(lambda: rdb_orig(feat), runs, warmup)
+            results.append({"name": "DenseBlock (basicsr, cat-based)", "mean_ms": mean, "std_ms": std})
+
+            mean, std = timeit(lambda: rdb_eff(feat), runs, warmup)
+            results.append({"name": "DenseBlock (MemEfficient, pre-alloc)", "mean_ms": mean, "std_ms": std})
+        except ImportError:
+            results.append({"name": "DenseBlock (basicsr missing)", "mean_ms": -1, "std_ms": 0})
+
+    except Exception as e:
+        results.append({"name": "Triton ESRGAN ops", "mean_ms": -1, "std_ms": 0, "error": str(e)})
+    return results
+
+
+def bench_sam_with_triton(runs: int, warmup: int, device: str) -> list[dict]:
+    """SAM vit_b end-to-end: baseline vs Triton kernel injection."""
+    results = []
+    ckpt = ROOT / "engines" / "sam_vit_b_01ec64.pth"
+    if not ckpt.exists():
+        results.append({"name": "SAM+Triton (checkpoint missing)", "mean_ms": -1, "std_ms": 0})
+        return results
+
+    dummy_rgb = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
+
+    try:
+        import torch
+        from app.core.sam_optimized import PersistentSAMPredictor
+        from app.core.sam_kernels import inject_sam_triton_kernels
+
+        # Baseline: compile + CUDA graph (no Triton LayerNorm/window ops)
+        sam_base = PersistentSAMPredictor(ckpt, "vit_b", device=device, use_fp16=True, use_compile=True)
+        if sam_base.is_loaded:
+            mean, std = timeit(lambda: sam_base.predict_frame(dummy_rgb), runs // 2, warmup)
+            results.append({"name": "SAM vit_b compile+CUDA graph (baseline)", "mean_ms": mean, "std_ms": std})
+
+        # +Triton LayerNorm + window partition injection
+        sam_tri = PersistentSAMPredictor(ckpt, "vit_b", device=device, use_fp16=True, use_compile=True)
+        if sam_tri.is_loaded:
+            inject_sam_triton_kernels(sam_tri._sam.image_encoder)
+            mean, std = timeit(lambda: sam_tri.predict_frame(dummy_rgb), runs // 2, warmup)
+            results.append({"name": "SAM vit_b +Triton LayerNorm+WindowOps", "mean_ms": mean, "std_ms": std})
+            sam_tri.unload()
+
+        if sam_base.is_loaded:
+            sam_base.unload()
+
+    except Exception as e:
+        results.append({"name": "SAM+Triton", "mean_ms": -1, "std_ms": 0, "error": str(e)})
+    return results
+
+
+def bench_esrgan_with_triton(runs: int, warmup: int, device: str) -> list[dict]:
+    """ESRGAN end-to-end: baseline vs Triton kernel injection."""
+    results = []
+    model_path = ROOT / "app" / "weights" / "RealESRGAN_x4plus.pth"
+    if not model_path.exists():
+        results.append({"name": "ESRGAN+Triton (weights missing)", "mean_ms": -1, "std_ms": 0})
+        return results
+
+    dummy = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+
+    try:
+        import copy
+        from app.core.esrgan_optimized import OptimizedRealESRGAN
+        from app.core.esrgan_kernels import inject_esrgan_kernels
+
+        # Baseline: FP16 + torch.compile (injection already happens in load())
+        # Run a no-injection variant for fair comparison
+        esrgan_base = OptimizedRealESRGAN(
+            model_path=model_path, device=device, use_fp16=True, use_compile=True
+        )
+        # Temporarily disable injection in load()
+        esrgan_base._skip_triton_inject = True
+        if esrgan_base.load(model_path):
+            mean, std = timeit(lambda: esrgan_base.upscale_image(dummy), runs, warmup)
+            results.append({"name": "ESRGAN FP16+compile (baseline)", "mean_ms": mean, "std_ms": std})
+
+            # Now inject Triton kernels on the same loaded model
+            inject_esrgan_kernels(esrgan_base._upsampler.model)
+            mean, std = timeit(lambda: esrgan_base.upscale_image(dummy), runs, warmup)
+            results.append({"name": "ESRGAN FP16+compile+Triton", "mean_ms": mean, "std_ms": std})
+            esrgan_base.unload()
+
+    except Exception as e:
+        results.append({"name": "ESRGAN+Triton", "mean_ms": -1, "std_ms": 0, "error": str(e)})
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────
 # Reporting
 # ─────────────────────────────────────────────────────────────────
 
@@ -262,6 +475,13 @@ def main():
         "SAM (512×512 face)": bench_sam(args.runs, args.warmup, args.device),
         "GFPGAN (512×512 face)": bench_gfpgan(args.runs, args.warmup, args.device),
         "XSeg (512×512 → 256×256 mask)": bench_xseg(args.runs, args.warmup, args.device),
+        # --- Custom Triton kernel micro-benchmarks (no model weights needed) ---
+        "Triton LayerNorm (SAM hidden dims)": bench_triton_layernorm(args.runs, args.warmup, args.device),
+        "Triton Window Ops (SAM 64×64 map)": bench_triton_window_ops(args.runs, args.warmup, args.device),
+        "Triton ESRGAN Ops (per-layer)": bench_triton_esrgan_ops(args.runs, args.warmup, args.device),
+        # --- End-to-end with Triton injection ---
+        "SAM end-to-end: baseline vs +Triton": bench_sam_with_triton(args.runs, args.warmup, args.device),
+        "ESRGAN end-to-end: baseline vs +Triton": bench_esrgan_with_triton(args.runs, args.warmup, args.device),
     }
 
     table = format_table(sections)

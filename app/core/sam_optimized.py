@@ -123,6 +123,15 @@ class PersistentSAMPredictor:
             self._loaded = True
             logger.info("SAM loaded successfully on %s.", self._device)
 
+            # Inject Triton kernels (LayerNorm + window ops)
+            try:
+                from app.core.sam_kernels import inject_sam_triton_kernels
+                n = inject_sam_triton_kernels(sam.image_encoder)
+                if n:
+                    logger.info("SAM: %d Triton kernel(s) injected.", n)
+            except Exception as _e:
+                logger.debug("SAM Triton kernel injection skipped: %s", _e)
+
         except Exception as e:
             logger.error("Failed to load SAM: %s", e)
 

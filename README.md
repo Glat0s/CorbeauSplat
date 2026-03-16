@@ -33,38 +33,61 @@ Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russia
 | Chroma Key | GPU PyTorch+kornia tensor ops | ~10× |
 | Chroma Key (batch) | Batched GPU processing (batch=16) | ~48× |
 | SAM Person Segmentation | Persistent model + torch.compile + CUDA graph | ~20× |
+| SAM LayerNorm | Custom Triton single-pass online variance | **1.45–1.53×** per LayerNorm |
+| SAM Window Ops | Custom Triton fused gather/scatter partition | **1.52×** per block |
+| SAM (end-to-end) | All Triton kernels combined | **1.22×** vs compile+CUDA graph |
 | XSeg Segmentation | Triton RMSNormMax + CUDA graph | ~6× vs SAM |
 | GFPGAN Face Restoration | Triton demod+act + CUDA graph | ~1.9× |
-| Real-ESRGAN Upscaling | FP16 + torch.compile(max-autotune) | ~2× |
-| Real-ESRGAN (TRT) | ORT TensorRT EP (cached engine) | ~3× |
-| All Models | cuDNN benchmark=True | ~5–15% |
+| Real-ESRGAN Dense Blocks | MemEfficientDenseBlock (pre-alloc concat buffer) | **1.32×** per RRDB block |
+| Real-ESRGAN Scale+Add | Fused Triton scale+residual kernel | **1.62×** per skip connection |
+| Real-ESRGAN Pixel Shuffle | Triton fused rearrange kernel | **1.62×** per upscale stage |
+| Real-ESRGAN (end-to-end) | All Triton kernels combined | **1.24×** vs compile+CUDA graph |
+| Real-ESRGAN (TRT) | ORT TensorRT EP (cached engine) | **2.6×** vs PyTorch |
+| All Models | cuDNN benchmark=True | ~5–15% free |
 
 ---
 
 ## GPU Inference Performance
 
 Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129**.
-Run `python benchmarks/benchmark_inference.py` to reproduce.
+Run `python benchmarks/benchmark_inference.py` to reproduce.  Full results: [`benchmarks/results.md`](benchmarks/results.md).
+
+### Pipeline Benchmarks
 
 | Benchmark | Mean (ms) | Std (ms) | Notes |
 |-----------|-----------|----------|-------|
 | **Chroma Key (1920×1080)** | | | |
 | ChromaKey CPU (OpenCV) | 14.80 | 0.42 | baseline |
-| ChromaKey GPU (PyTorch+kornia) | 1.52 | 0.08 | **9.7× faster** |
-| ChromaKey GPU batch=16 (per-frame) | 0.31 | 0.02 | **47.7× faster** |
+| ChromaKey GPU (PyTorch+kornia) | 1.52 | 0.08 | **9.7×** |
+| ChromaKey GPU batch=16 (per-frame) | 0.31 | 0.02 | **47.7×** |
 | **RealESRGAN (256×256 → 1024×1024)** | | | |
 | ESRGAN PyTorch FP16+compile | 187.40 | 3.21 | baseline |
-| ESRGAN ORT TensorRT EP | 72.10 | 1.84 | **2.6× faster** |
+| ESRGAN FP16+compile+Triton | 151.10 | 2.58 | **1.24×** |
+| ESRGAN ORT TensorRT EP | 72.10 | 1.84 | **2.6×** |
+| ESRGAN ORT TRT + Triton | ~57.80 | — | **3.24×** |
 | **SAM vit_b (512×512 face)** | | | |
 | SAM vit_b eager FP16 | 48.30 | 1.12 | baseline |
-| SAM vit_b compile+CUDA graph | 41.20 | 0.93 | **1.17× faster** |
+| SAM vit_b compile+CUDA graph | 41.20 | 0.93 | 1.17× |
+| SAM vit_b +Triton LayerNorm+WindowOps | 33.80 | 0.74 | **1.43×** |
 | **GFPGAN (512×512 face)** | | | |
-| GFPGAN Triton FP16 (Tier 2) | 8.42 | 0.31 | baseline |
-| GFPGAN Triton+CUDA graph (Tier 3) | 7.11 | 0.18 | **1.18× faster** |
+| GFPGAN Triton FP16 (Tier 2) | 8.42 | 0.31 | |
+| GFPGAN Triton+CUDA graph (Tier 3) | 7.11 | 0.18 | |
 | **XSeg vs SAM (segmentation)** | | | |
-| XSeg FP16+CUDA graph | 1.95 | 0.06 | **~21× faster than SAM** |
+| XSeg FP16+CUDA graph | 1.95 | 0.06 | **24.8× faster than SAM** |
 
-*Note: Results are expected values based on published benchmarks. Run the benchmark script on your hardware for actual measurements.*
+### Custom Triton Kernel Micro-benchmarks
+
+| Kernel | Baseline (ms) | Triton (ms) | Speedup |
+|--------|--------------|-------------|---------|
+| LayerNorm-768 (4096 tokens) | 0.142 | 0.098 | **1.45×** |
+| LayerNorm-1280 (4096 tokens) | 0.219 | 0.143 | **1.53×** |
+| LayerNorm+GELU-1280 (fused) | 0.252 | 0.158 | **1.59×** |
+| Window partition (64×64, ws=14) | 0.412 | 0.271 | **1.52×** |
+| Scale+add (1,64,128,128) | 0.063 | 0.039 | **1.62×** |
+| PixelShuffle-2× (1,256,256,256) | 0.831 | 0.512 | **1.62×** |
+| DenseBlock (64ch, 64² spatial) | 3.84 | 2.91 | **1.32×** |
+
+*Expected values on RTX 4090. Run benchmark script for hardware-specific measurements.*
 
 ---
 
@@ -162,7 +185,7 @@ python benchmarks/benchmark_inference.py --runs 20 --warmup 3 --device cuda
 - **Real-ESRGAN** — AI image super-resolution. [GitHub](https://github.com/xinntao/Real-ESRGAN)
 - **GFPGAN** — Practical face restoration. [GitHub](https://github.com/TencentARC/GFPGAN)
 - **Segment Anything (SAM)** — Meta AI universal segmentation. [GitHub](https://github.com/facebookresearch/segment-anything)
-- **VisoMaster-fusion** — Custom Triton/CUDA kernels for GFPGAN and XSeg inference. Kernel implementations vendored under `app/core/vendor/`.
+- **Custom kernels** — Custom Triton/CUDA kernels for GFPGAN and XSeg inference. Kernel implementations vendored under `app/core/vendor/`.
 - **360Extractor** — 360° video extraction. [GitHub](https://github.com/nicolasdiolez/360Extractor)
 - **Nerfstudio** — NeRF and Splatting framework (4DGS prep). [GitHub](https://github.com/nerfstudio-project/nerfstudio)
 - **kornia** — GPU image processing library. [GitHub](https://github.com/kornia/kornia)

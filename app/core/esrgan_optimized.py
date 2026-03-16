@@ -149,6 +149,16 @@ class OptimizedRealESRGAN:
             self._model_net = self._upsampler.model
             logger.info("OptimizedRealESRGAN loaded (fp16=%s, compile=%s).", half, self._use_compile)
             self.to_channels_last()
+
+            # Inject Triton kernels (dense blocks + pixel shuffle + residual)
+            try:
+                from app.core.esrgan_kernels import inject_esrgan_kernels
+                n = inject_esrgan_kernels(self._upsampler.model)
+                if n:
+                    logger.info("ESRGAN: %d Triton kernel(s) injected.", n)
+            except Exception as _e:
+                logger.debug("ESRGAN Triton kernel injection skipped: %s", _e)
+
             return True
 
         except Exception as e:
