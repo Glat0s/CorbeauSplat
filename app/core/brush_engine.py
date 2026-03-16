@@ -49,8 +49,12 @@ class BrushEngine(BaseEngine):
             env["WGPU_BACKEND"] = "metal"
             env["WGPU_POWER_PREF"] = "high_performance"
         elif device == "cuda":
+            # On Windows with NVIDIA RTX: prefer Vulkan for WGPU (best perf on RTX 4090)
+            # DX12 is the fallback; Vulkan is explicitly preferred for CUDA workloads
             env["WGPU_BACKEND"] = "vulkan"
             env["WGPU_POWER_PREF"] = "high_performance"
+            # Enable CUDA interop for Vulkan on Windows
+            env["WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER"] = "1"
 
         # [AUDIT] OWASP-A03 : Abandon de shlex brut, filtrage strict via liste blanche 
         # pour éviter la command injection (ex: écrasement de binaires ou flags inattendus)

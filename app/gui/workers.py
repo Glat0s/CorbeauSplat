@@ -7,6 +7,7 @@ from app.core.brush_engine import BrushEngine
 from app.core.i18n import tr
 from app.gui.base_worker import BaseWorker
 from app.core.extractor_360_engine import Extractor360Engine
+from app.core.vr180_engine import VR180Engine
 
 class Extractor360Worker(BaseWorker):
     """Thread worker pour exécuter 360Extractor"""
@@ -229,7 +230,11 @@ class BrushWorker(BaseWorker):
                     # 4. Symlinks sparse & images
                     try:
                         self.log_signal.emit("Création des liens symboliques pour sparse et images...")
-                        os.symlink(resolved_input / "sparse", refine_dir / "sparse")
+                        try:
+                            os.symlink(resolved_input / "sparse", refine_dir / "sparse")
+                        except OSError as e:
+                            self.log_signal.emit(f"Symlink sparse échoué ({e}), copie...")
+                            shutil.copytree(str(resolved_input / "sparse"), str(refine_dir / "sparse"))
                         try:
                             os.symlink(resolved_input / "images", refine_dir / "images")
                         except OSError as e:
@@ -373,6 +378,89 @@ class BrushWorker(BaseWorker):
                 self.log_signal.emit(f"Erreur renommage PLY: {str(e)}")
         else:
             self.log_signal.emit("Attention: Aucun fichier PLY trouvé à renommer.")
+
+class VR180Worker(BaseWorker):
+    """
+    Worker for the VR 180 green-screen pipeline.
+    Runs VR180Engine.process_video() then hands off to ColmapEngine.
+    """
+
+    def __init__(self, video_path: str, output_dir: str, project_name: str,
+                 fps: float, vr180_params: dict, colmap_params=None,
+                 upscale_params=None, engine=None):
+        super().__init__()
+        self.video_path = video_path
+        self.output_dir = output_dir
+        self.project_name = project_name
+        self.fps = fps
+        self.vr180_params = vr180_params or {}
+        self.colmap_params = colmap_params
+        self.upscale_params = upscale_params
+        self.engine = engine or VR180Engine(logger_callback=self.log_signal.emit)
+        self._colmap_engine = None
+
+    def stop(self):
+        self.engine.stop()
+        if self._colmap_engine:
+            self._colmap_engine.stop()
+        super().stop()
+
+    def run(self):
+        self.log_signal.emit(tr("vr180_worker_start", "--- Starting VR 180 pipeline ---"))
+
+        project_dir = Path(self.output_dir) / self.project_name
+        images_dir = project_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Merge fps into vr180_params so the engine can use it
+        params = dict(self.vr180_params)
+        params["fps"] = self.fps
+
+        success = self.engine.process_video(
+            self.video_path,
+            images_dir,
+            params,
+            progress_callback=self.progress_signal.emit,
+            log_callback=self.log_signal.emit,
+            status_callback=self.status_signal.emit,
+            check_cancel=self.isInterruptionRequested,
+        )
+
+        if not success:
+            self.finished_signal.emit(False, tr("vr180_failed", "VR 180 processing failed."))
+            return
+
+        if self.isInterruptionRequested():
+            self.finished_signal.emit(False, tr("USER_CANCELLED", "Cancelled by user."))
+            return
+
+        # Hand off to COLMAP if params provided
+        if self.colmap_params is not None:
+            self.log_signal.emit(tr("vr180_colmap_start", "VR 180 extraction done → starting COLMAP..."))
+            self.status_signal.emit(tr("status_prep_images", "Preparing images..."))
+
+            from app.core.engine import ColmapEngine
+            self._colmap_engine = ColmapEngine(
+                self.colmap_params,
+                str(images_dir),
+                self.output_dir,
+                "images",
+                self.fps,
+                self.project_name,
+                logger_callback=self.log_signal.emit,
+                progress_callback=self.progress_signal.emit,
+                status_callback=self.status_signal.emit,
+                check_cancel_callback=self.isInterruptionRequested,
+            )
+
+            if self.upscale_params and self.upscale_params.get("active", False):
+                self._colmap_engine.upscale_config = self.upscale_params
+
+            colmap_ok, msg = self._colmap_engine.run()
+            self.finished_signal.emit(colmap_ok, msg)
+        else:
+            self.finished_signal.emit(True, tr("vr180_done", f"VR 180 segmentation complete: {images_dir}"))
+
 
 class SharpWorker(BaseWorker):
     """Thread worker pour exécuter Apple ML Sharp"""

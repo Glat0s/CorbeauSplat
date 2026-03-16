@@ -22,7 +22,8 @@ from app.gui.tabs.superplat_tab import SuperSplatTab
 from app.gui.tabs.upscale_tab import UpscaleTab
 from app.gui.tabs.four_dgs_tab import FourDGSTab
 from app.gui.tabs.extractor_360_tab import Extractor360Tab
-from app.gui.workers import ColmapWorker, BrushWorker, SharpWorker
+from app.gui.tabs.vr180_tab import VR180Tab
+from app.gui.workers import ColmapWorker, BrushWorker, SharpWorker, VR180Worker
 from app import VERSION
 
 class ColmapGUI(QMainWindow):
@@ -31,6 +32,7 @@ class ColmapGUI(QMainWindow):
         self.worker = None
         self.brush_worker = None
         self.sharp_worker = None
+        self.vr180_worker = None
         
         # [AUDIT] SRP : Extraction de la gestion de session
         from app.gui.managers import SessionManager
@@ -84,6 +86,9 @@ class ColmapGUI(QMainWindow):
         self.extractor_360_tab = Extractor360Tab()
         self.tabs.addTab(self.extractor_360_tab, tr("tab_360"))
 
+        self.vr180_tab = VR180Tab()
+        self.tabs.addTab(self.vr180_tab, tr("tab_vr180", "VR 180"))
+
         self.logs_tab = LogsTab()
         self.tabs.addTab(self.logs_tab, tr("tab_logs"))
         
@@ -127,6 +132,7 @@ class ColmapGUI(QMainWindow):
             self.sharp_tab: tr("tab_sharp"),
             self.four_dgs_tab: tr("tab_four_dgs"),
             self.extractor_360_tab: tr("tab_360"),
+            self.vr180_tab: tr("tab_vr180", "VR 180"),
             self.logs_tab: tr("tab_logs")
         }
         
@@ -146,6 +152,7 @@ class ColmapGUI(QMainWindow):
             self.sharp_tab,
             self.four_dgs_tab,
             self.extractor_360_tab,
+            self.vr180_tab,
             self.logs_tab
         ]
         
@@ -243,8 +250,7 @@ class ColmapGUI(QMainWindow):
             
         elif mode == "4dgs":
             self.logs_tab.append_log(tr("msg_processing") + " (4DGS)")
-            
-            # Need to import FourDGSWorker if not already done. It is imported at line 27.
+
             from app.gui.workers import FourDGSWorker
             self.fourdgs_worker = FourDGSWorker(input_path, output_path, self.config_tab.get_fps())
             self.fourdgs_worker.log_signal.connect(self.logs_tab.append_log)
@@ -252,14 +258,34 @@ class ColmapGUI(QMainWindow):
             self.fourdgs_worker.status_signal.connect(self.config_tab.lbl_status.setText)
             self.fourdgs_worker.finished_signal.connect(self.on_finished)
             self.fourdgs_worker.start()
-            
+
+        elif mode == "vr180":
+            self.logs_tab.append_log(tr("msg_processing") + " (VR 180)")
+            vr180_params = self.vr180_tab.get_params()
+
+            self.vr180_worker = VR180Worker(
+                video_path=input_path,
+                output_dir=output_path,
+                project_name=self.config_tab.get_project_name(),
+                fps=self.config_tab.get_fps(),
+                vr180_params=vr180_params,
+                colmap_params=self.get_current_params(),
+                upscale_params=self.get_upscale_config(),
+            )
+            self.vr180_worker.log_signal.connect(self.logs_tab.append_log)
+            self.vr180_worker.progress_signal.connect(self.config_tab.progress_bar.setValue)
+            self.vr180_worker.status_signal.connect(self.config_tab.lbl_status.setText)
+            self.vr180_worker.finished_signal.connect(self.on_finished)
+            self.vr180_worker.start()
+
         # self.tabs.setCurrentWidget(self.logs_tab)
         
     def stop_process(self):
         """Arrête le processus en cours"""
         if (self.worker and self.worker.isRunning()) or \
            (self.sharp_worker and self.sharp_worker.isRunning()) or \
-           (hasattr(self, 'fourdgs_worker') and self.fourdgs_worker and self.fourdgs_worker.isRunning()):
+           (hasattr(self, 'fourdgs_worker') and self.fourdgs_worker and self.fourdgs_worker.isRunning()) or \
+           (hasattr(self, 'vr180_worker') and self.vr180_worker and self.vr180_worker.isRunning()):
             
             reply = QMessageBox.question(
                 self, tr("msg_warning"), tr("confirm_stop"),
@@ -271,6 +297,7 @@ class ColmapGUI(QMainWindow):
                 if self.worker and self.worker.isRunning(): self.worker.stop()
                 if self.sharp_worker and self.sharp_worker.isRunning(): self.sharp_worker.stop()
                 if hasattr(self, 'fourdgs_worker') and self.fourdgs_worker and self.fourdgs_worker.isRunning(): self.fourdgs_worker.stop()
+                if hasattr(self, 'vr180_worker') and self.vr180_worker and self.vr180_worker.isRunning(): self.vr180_worker.stop()
         
     def on_finished(self, success, message):
         """Fin du traitement"""

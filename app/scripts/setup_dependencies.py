@@ -489,14 +489,63 @@ def relax_requirements(src, dst):
             f_out.write(line)
 
 def install_system_dependencies(check_only=False):
+    if sys.platform == "win32":
+        return _install_system_dependencies_windows(check_only)
+    return _install_system_dependencies_macos(check_only)
+
+def _install_system_dependencies_windows(check_only=False):
+    print("--- System Dependency Check (Windows) ---")
+    missing = []
+    for cmd in ["colmap", "ffmpeg"]:
+        if shutil.which(cmd) is None and shutil.which(cmd + ".exe") is None:
+            missing.append(cmd)
+
+    if not missing:
+        print("✅ System dependencies present.")
+        return True
+
+    print(f"Missing: {', '.join(missing)}")
+    if check_only:
+        print("ℹ️ Audit mode: automatic installation skipped.")
+        return False
+
+    # Try winget first (available on Windows 10/11)
+    has_winget = shutil.which("winget") is not None
+    # Try chocolatey as fallback
+    has_choco = shutil.which("choco") is not None
+
+    if not has_winget and not has_choco:
+        print("ℹ️  No package manager found (winget/choco).")
+        print("   Please install COLMAP and FFmpeg manually:")
+        print("   COLMAP: https://github.com/colmap/colmap/releases")
+        print("   FFmpeg: https://www.gyan.dev/ffmpeg/builds/ (add to PATH)")
+        return False
+
+    try:
+        if has_winget:
+            if "colmap" in missing:
+                subprocess.check_call(["winget", "install", "--id", "UB-Mannheim.COLMAP", "-e", "--silent"])
+            if "ffmpeg" in missing:
+                subprocess.check_call(["winget", "install", "--id", "Gyan.FFmpeg", "-e", "--silent"])
+        elif has_choco:
+            if "colmap" in missing:
+                subprocess.check_call(["choco", "install", "colmap", "-y"])
+            if "ffmpeg" in missing:
+                subprocess.check_call(["choco", "install", "ffmpeg", "-y"])
+        return True
+    except Exception as e:
+        print(f"Automatic installation failed: {e}")
+        print("Please install manually: COLMAP and FFmpeg, then add them to PATH.")
+        return False
+
+def _install_system_dependencies_macos(check_only=False):
     print("--- System Dependency Check (Homebrew) ---")
     missing = []
     for cmd in ["colmap", "ffmpeg"]:
         if shutil.which(cmd) is None: missing.append(cmd)
-        
+
     if sys.platform == "darwin":
         try:
-             # Check for libomp and freeimage
              if subprocess.run(["brew", "list", "libomp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
                  missing.append("libomp")
              if subprocess.run(["brew", "list", "freeimage"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
@@ -506,7 +555,7 @@ def install_system_dependencies(check_only=False):
     if not missing:
         print("✅ System dependencies present.")
         return True
-        
+
     print(f"Missing: {', '.join(missing)}")
     if check_only:
         print("ℹ️ Audit mode: automatic installation skipped.")
@@ -515,7 +564,7 @@ def install_system_dependencies(check_only=False):
     if shutil.which("brew") is None:
         print("ERROR: Homebrew required.")
         return False
-        
+
     print("Installing via Homebrew...")
     try:
         if "colmap" in missing: subprocess.check_call(["brew", "install", "colmap"])
@@ -528,6 +577,14 @@ def install_system_dependencies(check_only=False):
         return False
 
 def install_node_js():
+    if sys.platform == "win32":
+        print("Installing Node.js via winget...")
+        try:
+            subprocess.check_call(["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"])
+            return True
+        except:
+            print("Please install Node.js manually from https://nodejs.org/")
+            return False
     print("Installing Node.js via Homebrew...")
     try:
         subprocess.check_call(["brew", "install", "node"])
@@ -535,6 +592,15 @@ def install_node_js():
     except: return False
 
 def install_build_tools():
+    if sys.platform == "win32":
+        print("Installing CMake & Ninja via winget...")
+        try:
+            subprocess.check_call(["winget", "install", "--id", "Kitware.CMake", "-e", "--silent"])
+            subprocess.check_call(["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"])
+            return True
+        except:
+            print("Please install CMake and Ninja manually.")
+            return False
     print("Installing CMake & Ninja via Homebrew...")
     try:
         subprocess.check_call(["brew", "install", "cmake", "ninja"])
@@ -632,10 +698,23 @@ def check_xcode_tools():
 def install_rust_toolchain():
     print("Installing Rust (cargo)...")
     try:
-        # Install rustup non-interactively
-        subprocess.check_call("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", shell=True)
-        
-        # Add to current path for this session
+        if sys.platform == "win32":
+            # On Windows, download and run rustup-init.exe
+            import urllib.request, tempfile
+            rustup_url = "https://win.rustup.rs/x86_64"
+            with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
+                tmp_path = tmp.name
+            urllib.request.urlretrieve(rustup_url, tmp_path)
+            subprocess.check_call([tmp_path, "-y", "--default-toolchain", "stable"])
+            Path(tmp_path).unlink(missing_ok=True)
+        else:
+            # Install rustup non-interactively on Unix
+            subprocess.check_call(
+                "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+                shell=True
+            )
+
+        # Add cargo bin to current PATH for this session
         cargo_bin = Path.home() / ".cargo" / "bin"
         if cargo_bin.exists():
             os.environ["PATH"] = str(cargo_bin) + os.pathsep + os.environ["PATH"]
@@ -738,11 +817,64 @@ class UpscaleEngineDep(PipEngine):
         print(f"Installing/Updating: {', '.join(pkgs)}...")
         self.pip_install(pkgs)
 
+class VR180EngineDep(PipEngine):
+    """VR 180 green-screen segmentation engine (SAM + OpenCV + torch)"""
+    def __init__(self):
+        super().__init__("vr180", None, ".venv_vr180")
+
+    def is_enabled_in_config(self, config: dict) -> bool:
+        return config.get("vr180_params", {}).get("enabled", False) or config.get("vr180_enabled", False)
+
+    def install(self):
+        self.create_venv()
+        # Install PyTorch with CUDA 12.9 on Windows, CPU fallback elsewhere
+        if sys.platform == "win32":
+            self.pip_install([
+                "torch", "torchvision",
+                "--index-url", "https://download.pytorch.org/whl/cu124"
+            ])
+        else:
+            self.pip_install(["torch", "torchvision"])
+        self.pip_install(["opencv-python", "numpy<2"])
+        # Install SAM (Segment Anything Model) from Meta
+        self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
+        self.save_local_version("sam-installed")
+        print("✅ VR180 engine (SAM + OpenCV) installed.")
+
+    def is_installed(self) -> bool:
+        if not self.python_bin.exists():
+            return False
+        try:
+            result = subprocess.run(
+                [str(self.python_bin), "-c", "import cv2, torch; from segment_anything import sam_model_registry"],
+                capture_output=True, timeout=10
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+
+def uninstall_vr180():
+    return VR180EngineDep().uninstall()
+
+def install_vr180():
+    dep = VR180EngineDep()
+    dep.install()
+    return dep.is_installed()
+
+def get_venv_vr180_python():
+    """Returns path to python executable in .venv_vr180"""
+    root = resolve_project_root()
+    if sys.platform == "win32":
+        return root / ".venv_vr180" / "Scripts" / "python.exe"
+    return root / ".venv_vr180" / "bin" / "python"
+
+
 def main():
     root = Path(__file__).resolve().parent.parent.parent
     engines_dir = root / "engines"
     engines_dir.mkdir(parents=True, exist_ok=True)
-    
+
     manager = DependencyManager(engines_dir)
     manager.register(GlomapEngineDep())
     manager.register(BrushEngineDep())
@@ -750,7 +882,8 @@ def main():
     manager.register(SuperSplatEngineDep())
     manager.register(UpscaleEngineDep())
     manager.register(Extractor360EngineDep())
-    
+    manager.register(VR180EngineDep())
+
     check_only = "--check" in sys.argv
     startup = "--startup" in sys.argv
     manager.main_install(check_only=check_only, startup=startup)

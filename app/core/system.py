@@ -12,9 +12,16 @@ def is_apple_silicon():
     """Détecte si on est sur Apple Silicon"""
     return platform.system() == 'Darwin' and platform.machine() == 'arm64'
 
+def is_windows():
+    """Detects if running on Windows"""
+    return platform.system() == 'Windows'
+
+def is_windows_cuda():
+    """Detects if running on Windows with an NVIDIA GPU (CUDA)"""
+    return is_windows() and shutil.which("nvidia-smi") is not None
 
 def get_optimal_threads():
-    """Retourne le nombre optimal de threads pour Apple Silicon (P-cores) ou autres plateformes"""
+    """Returns optimal thread count for the current platform"""
     if is_apple_silicon():
         # Apple Silicon has heterogeneous P-cores (performance) + E-cores (efficiency).
         # For compute-heavy tasks (COLMAP, ffmpeg), we prefer P-cores only.
@@ -29,39 +36,56 @@ def get_optimal_threads():
                     return p_cores
         except (ValueError, subprocess.SubprocessError, OSError):
             pass
-        # Fallback: assume P-cores are half of total (conservative for M1/M2/M3)
         cpu_count = os.cpu_count() or 8
         return max(1, cpu_count // 2)
+    # On Windows/Linux, use all logical cores for compute tasks
     return os.cpu_count() or 4
 
 def resolve_binary(name):
     """
-    Résoud le chemin d'un binaire en priorisant le dossier 'engines' local.
-    Retourne le chemin absolu ou le nom si trouvé dans le PATH, sinon None.
+    Resolves a binary path, prioritising the local 'engines' directory.
+    On Windows, also tries the .exe extension.
+    Returns the absolute path string, or None if not found.
     """
-    # 1. Chercher dans le dossier engines à la racine du projet
     engines_dir = resolve_project_root() / "engines"
-    
-    local_path = engines_dir / name
-    
-    # Cas binaire direct
-    if local_path.exists() and os.access(local_path, os.X_OK):
-        return str(local_path)
-        
-    # Cas macOS .app bundle pour COLMAP
-    if name == "colmap":
+
+    # Candidate names: on Windows also try name.exe
+    candidates = [name]
+    if is_windows() and not name.endswith(".exe"):
+        candidates.append(name + ".exe")
+
+    # 1. Look inside engines/ directory
+    for candidate in candidates:
+        local_path = engines_dir / candidate
+        if local_path.exists():
+            if is_windows() or os.access(local_path, os.X_OK):
+                return str(local_path)
+
+    # 2. macOS .app bundle for COLMAP (non-Windows only)
+    if not is_windows() and name == "colmap":
         colmap_app = engines_dir / "COLMAP.app" / "Contents" / "MacOS" / "colmap"
         if colmap_app.exists() and os.access(colmap_app, os.X_OK):
             return str(colmap_app)
-            
-    # 2. Chercher dans le PATH système
-    return shutil.which(name)
+
+    # 3. System PATH
+    for candidate in candidates:
+        result = shutil.which(candidate)
+        if result:
+            return result
+
+    return None
 
 def get_device():
     """Centralized device selection: mps, cuda, or cpu"""
     if is_apple_silicon():
         return "mps"
-    import shutil
+    # Prefer torch-based detection when available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
     if shutil.which("nvidia-smi") is not None:
         return "cuda"
     return "cpu"

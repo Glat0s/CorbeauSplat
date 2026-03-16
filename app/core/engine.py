@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from .base_engine import BaseEngine
-from .system import is_apple_silicon, get_optimal_threads, resolve_binary
+from .system import is_apple_silicon, is_windows, get_optimal_threads, resolve_binary
 from .i18n import tr
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
@@ -44,6 +44,8 @@ class ColmapEngine(BaseEngine):
             
         if self.is_silicon:
             self.log(f"Apple Silicon détecté - {self.num_threads} threads optimisés")
+        elif is_windows():
+            self.log(f"Windows détecté - {self.num_threads} threads disponibles")
         self.log(f"Binaires: {self.colmap_bin}, {self.ffmpeg_bin}, {self.glomap_bin}")
 
     # log method inherited from BaseEngine
@@ -411,7 +413,10 @@ class ColmapEngine(BaseEngine):
         cmd = [self.ffmpeg_bin]
         if self.is_silicon:
             cmd.extend(['-hwaccel', 'videotoolbox'])
-        
+        elif is_windows():
+            # CUDA hwaccel for decode only; software fps filter runs in CPU memory
+            cmd.extend(['-hwaccel', 'cuda'])
+
         cmd.extend([
             '-i', video_path,
             '-vf', f'fps={self.fps}',
@@ -453,6 +458,9 @@ class ColmapEngine(BaseEngine):
             env['OMP_NUM_THREADS'] = str(self.num_threads)
             env['VECLIB_MAXIMUM_THREADS'] = str(self.num_threads)
             env['OPENBLAS_NUM_THREADS'] = str(self.num_threads)
+        elif is_windows():
+            env['OMP_NUM_THREADS'] = str(self.num_threads)
+            env['OPENBLAS_NUM_THREADS'] = str(self.num_threads)
             
         def _colmap_parser(line_str):
             self.log(line_str)
@@ -489,7 +497,8 @@ class ColmapEngine(BaseEngine):
                 return False
                 
         except FileNotFoundError:
-            self.log(f"COLMAP non trouve. Installez avec: brew install colmap")
+            install_hint = "winget install UB-Mannheim.COLMAP" if is_windows() else "brew install colmap"
+            self.log(f"COLMAP non trouve. Installez avec: {install_hint}")
             return False
 
     def feature_extraction(self, database_path, images_dir):
@@ -586,13 +595,20 @@ class ColmapEngine(BaseEngine):
             final_images_path = images_dir
             final_sparse_path = sparse_dir / "0"
             
+        if self.is_silicon:
+            optimized_for = "Apple Silicon"
+        elif is_windows():
+            optimized_for = "Windows/CUDA (RTX)"
+        else:
+            optimized_for = "x86_64"
+
         config = {
             "dataset_type": "colmap",
             "images_path": str(final_images_path),
             "sparse_path": str(final_sparse_path),
-            "created_with": "CorbeauSplat macOS",
+            "created_with": "CorbeauSplat",
             "architecture": platform.machine(),
-            "optimized_for": "Apple Silicon" if self.is_silicon else "x86_64",
+            "optimized_for": optimized_for,
             "parameters": self.params.to_dict()
         }
         config_path = output_dir / "brush_config.json"

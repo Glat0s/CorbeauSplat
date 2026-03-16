@@ -3,8 +3,17 @@ requests
 urllib3<2
 numpy<2
 send2trash
+opencv-python
+
 # Upscale Dependencies (Dynamic but listed for reference/locking if needed)
 basicsr
 facexlib
 gfpgan
 realesrgan
+
+# VR 180 / Segmentation
+# PyTorch with CUDA 12.4 (closest available for CUDA 12.9 on Windows).
+# Install manually for CUDA 12.9 support:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Or let the setup script handle it automatically.
+# segment-anything is installed via the VR180 setup (pip install git+https://github.com/facebookresearch/segment-anything.git)
