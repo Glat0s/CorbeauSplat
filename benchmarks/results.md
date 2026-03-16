@@ -1,6 +1,6 @@
 # CorbeauSplat Inference Benchmark Results
 
-**Platform:** Windows 11 / RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124  
+**Platform:** Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129  
 **Runs:** 20 | **Warmup:** 3  
 
 | Benchmark | Mean (ms) | Std (ms) | Notes |

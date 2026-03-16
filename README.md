@@ -49,7 +49,7 @@ Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russia
 
 ## GPU Inference Performance
 
-Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124**.
+Benchmarked on **Windows 11 / RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129**.
 Run `python benchmarks/benchmark_inference.py` to reproduce.
 
 | Model / Component | Inference Type | Mean (ms) | Speedup |
@@ -70,7 +70,7 @@ Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-
 
 *Detailed micro-benchmarks available in [`benchmarks/results.md`](benchmarks/results.md).*
 
-*Measured on RTX 4090 / CUDA 12.4 / PyTorch 2.6.0+cu124. Run `python benchmarks/benchmark_inference.py` to reproduce.*
+*Measured on RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129. Run `python benchmarks/benchmark_inference.py` to reproduce.*
 
 ---
 

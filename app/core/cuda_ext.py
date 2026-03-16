@@ -32,12 +32,12 @@ _EXT_TRIED = False   # True after first load attempt (avoids repeated retries)
 CSRC_DIR = Path(__file__).parent / "csrc"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build environment setup (Windows / MSVC / CUDA 12.4)
+# Build environment setup (Windows / MSVC / CUDA 12.9)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _VS_INSTALL = r"D:\Microsoft Visual Studio\2022\Community"
 _MSVC_VER   = "14.37.32822"
-_CUDA_12_4  = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4"
+_CUDA_12_9  = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
 _WINSDK_VER = "10.0.22621.0"
 _WINSDK_ROOT = r"D:\Windows Kits\10"
 
@@ -68,8 +68,8 @@ def _setup_msvc_env() -> dict:
     )
     env["LIBPATH"] = msvc_lib + ";" + env.get("LIBPATH", "")
     # Force CUDA 12.4 to match torch
-    env["CUDA_HOME"]  = _CUDA_12_4
-    env["CUDA_PATH"]  = _CUDA_12_4
+    env["CUDA_HOME"]  = _CUDA_12_9
+    env["CUDA_PATH"]  = _CUDA_12_9
     env["DISTUTILS_USE_SDK"] = "1"
     env["MSSdk"] = "1"
     return env
@@ -117,7 +117,7 @@ def _load_ext() -> Optional[object]:
                 extra_cflags=["/O2", "/std:c++17"],
                 verbose=False,
             )
-            logger.info("CorbeauSplat CUDA extension loaded (sm_89, CUDA 12.4).")
+            logger.info("CorbeauSplat CUDA extension loaded (sm_89, CUDA 12.9).")
             _EXT = ext
         finally:
             # Restore original environment
