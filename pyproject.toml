@@ -1,3 +1,8 @@
+[tool.uv]
+index-url = "https://pypi.org/simple"
+extra-index-url = ["https://download.pytorch.org/whl/cu129"]
+index-strategy = "unsafe-best-match"
+
 [tool.bandit]
 exclude_dirs = [".venv", "benchmarks", "app/core/vendor"]
 skips = ["B101", "B110", "B310", "B404", "B602", "B603", "B606", "B607", "B614"]

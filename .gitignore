@@ -34,3 +34,4 @@ target/
 .venv_sharp/
 .venv_360/
 *.pth
+weights/
