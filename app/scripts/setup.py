@@ -11,11 +11,14 @@ Or triggered automatically on first GUI launch.
 
 from __future__ import annotations
 
+import logging
 import sys
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Bump to force re-setup when the set of required assets changes.
 SETUP_VERSION = "1"
@@ -70,7 +73,7 @@ def mark_setup_complete() -> None:
 def _download_file(
     url: str,
     dest: Path,
-    log_cb: Callable[[str], None] = print,
+    log_cb: Callable[[str], None] = logger.info,
     progress_cb: Optional[Callable[[int], None]] = None,
 ) -> bool:
     """Download *url* → *dest*; skip silently if dest already exists."""
@@ -129,7 +132,7 @@ def _run_engine(
 
 
 def run_setup(
-    log_cb: Callable[[str], None] = print,
+    log_cb: Callable[[str], None] = logger.info,
     step_cb: Optional[Callable[[str, str, str], None]] = None,
 ) -> dict[str, bool]:
     """
@@ -227,18 +230,21 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Re-run even if already complete")
     args = parser.parse_args()
 
+    from app.core.logging_config import configure_logging
+
+    configure_logging()
+
     if is_setup_complete() and not args.force:
-        print("Setup already complete. Use --force to re-run.")
+        logger.info("Setup already complete. Use --force to re-run.")
         return
 
     results = run_setup()
     failed = [k for k, v in results.items() if not v]
     if failed:
-        print(f"\n⚠️  Some steps failed: {', '.join(failed)}")
-        print("Re-run setup to retry failed steps.")
+        logger.warning("Some steps failed: %s — re-run setup to retry.", ", ".join(failed))
         sys.exit(1)
     else:
-        print("\n✅ All steps completed successfully.")
+        logger.info("All setup steps completed successfully.")
 
 
 if __name__ == "__main__":

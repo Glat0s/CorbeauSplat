@@ -1,65 +1,72 @@
+import contextlib
+import logging
 import os
-import sys
 import signal
 import subprocess
-import logging
+import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
+
 from .system import get_device, resolve_project_root
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class IProcessRunner:
     """Interface abstraite pour l'exécution d'un processus systéme (DIP & Testabilité)"""
+
     def start(self, cmd: list, env: dict = None, **kwargs):
         raise NotImplementedError()
-        
+
     def poll(self):
         raise NotImplementedError()
-        
+
     def wait(self, timeout=None):
         raise NotImplementedError()
-        
+
     def terminate(self):
         raise NotImplementedError()
-        
+
     def stdout_iter(self) -> Iterator[str]:
         raise NotImplementedError()
-        
+
     def get_returncode(self) -> int:
         raise NotImplementedError()
 
+
 class SubprocessRunner(IProcessRunner):
     """Implémentation concrète de l'OS via subprocess"""
+
     def __init__(self):
         self._process = None
-        
+
     def start(self, cmd: list, env: dict = None, **kwargs):
         base_kwargs = {
-            'stdout': subprocess.PIPE,
-            'stderr': subprocess.STDOUT,
-            'universal_newlines': True,
-            'bufsize': 1
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "universal_newlines": True,
+            "bufsize": 1,
         }
         base_kwargs.update(kwargs)
-        
+
         # [AUDIT] Sécurisation du process group pour permettre de kill l'arbre process
-        if sys.platform != "win32" and 'preexec_fn' not in base_kwargs:
-            base_kwargs['preexec_fn'] = os.setsid
-            
+        if sys.platform != "win32" and "preexec_fn" not in base_kwargs:
+            base_kwargs["preexec_fn"] = os.setsid
+
         self._process = subprocess.Popen(cmd, env=env, **base_kwargs)
         return self._process
-        
+
     def poll(self):
-        if self._process: return self._process.poll()
+        if self._process:
+            return self._process.poll()
         return None
-        
+
     def wait(self, timeout=None):
-        if self._process: return self._process.wait(timeout)
+        if self._process:
+            return self._process.wait(timeout)
         return None
-        
+
     def terminate(self):
-        if not self._process: return
+        if not self._process:
+            return
         try:
             if sys.platform != "win32":
                 os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
@@ -69,14 +76,14 @@ class SubprocessRunner(IProcessRunner):
         except (ProcessLookupError, PermissionError, OSError, subprocess.TimeoutExpired):
             self._process.kill()
             self._process.wait()
-            
+
     def stdout_iter(self) -> Iterator[str]:
-        if getattr(self._process, 'stdout', None):
-            for line in self._process.stdout:
-                yield line
-                
+        if getattr(self._process, "stdout", None):
+            yield from self._process.stdout
+
     def get_returncode(self) -> int:
-        if self._process: return self._process.returncode
+        if self._process:
+            return self._process.returncode
         return -1
 
 
@@ -84,18 +91,19 @@ class BaseEngine:
     """
     Base class for all engines to consolidate common logic.
     """
+
     def __init__(self, name, logger_callback=None, process_runner: IProcessRunner = None):
         self.name = name
         self.logger_callback = logger_callback
         self.device = get_device()
         self.project_root = resolve_project_root()
         self.stop_requested = False
-        
+
         self.logger = logging.getLogger(self.name)
-        
+
         # [AUDIT] SOLID-DIP : Injection abstraite pour tests (mockable)
         self.runner = process_runner or SubprocessRunner()
-        self.process = None # Retro-compatibilité temporaire
+        self.process = None  # Retro-compatibilité temporaire
 
     def log(self, message, level=logging.INFO):
         self.logger.log(level, message)
@@ -105,7 +113,7 @@ class BaseEngine:
     def stop(self):
         self.stop_requested = True
         self.runner.terminate()
-        self._kill_process(self.process) # Legacy cleanup
+        self._kill_process(self.process)  # Legacy cleanup
 
     def _execute_command(self, cmd: list, env: dict = None, line_callback=None, **kwargs) -> int:
         """
@@ -113,25 +121,26 @@ class BaseEngine:
         Délègue à l'IProcessRunner injecté, gère la boucle standard et l'annulation.
         Retourne le returncode (0 si succès, -1 si annulé ou erreur).
         """
-        if self.stop_requested: return -1
-        
+        if self.stop_requested:
+            return -1
+
         self.log(f"Exec: {' '.join(map(str, cmd))}")
         try:
             self.runner.start(cmd, env=env, **kwargs)
-            self.process = getattr(self.runner, '_process', None) # Legacy mapping
-            
+            self.process = getattr(self.runner, "_process", None)  # Legacy mapping
+
             for line in self.runner.stdout_iter():
                 if self.stop_requested:
                     self.runner.terminate()
                     return -1
-                
+
                 stripped = line.strip()
                 if stripped:
                     if line_callback:
                         line_callback(stripped)
                     else:
                         self.log(stripped)
-                        
+
             return self.runner.wait()
         except Exception as e:
             self.logger.error("Exception in _execute_command", exc_info=True)
@@ -158,10 +167,7 @@ class BaseEngine:
             return None
         try:
             p = Path(path).resolve()
-            allowed_bases = [
-                str(self.project_root),
-                str(Path.home())
-            ]
+            allowed_bases = [str(self.project_root), str(Path.home())]
             if not any(str(p).startswith(base) for base in allowed_bases):
                 self.log(f"SECURITY WARNING: Path access outside allowed boundaries: {p}")
             return p
@@ -177,9 +183,8 @@ class BaseEngine:
     def cleanup_temp_files(self, patterns):
         """Standardized cleanup for temp files matching given glob patterns"""
         import glob
+
         for pattern in patterns:
             for f in glob.glob(str(pattern)):
-                try:
+                with contextlib.suppress(OSError):
                     Path(f).unlink()
-                except OSError:
-                    pass

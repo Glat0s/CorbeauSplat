@@ -11,9 +11,14 @@ Optimized for:
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 from pathlib import Path
+
 import torch
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Point Triton JIT cache to project-side directory
@@ -81,9 +86,9 @@ def _prune_old_triton_cache(cache_root: Path, current_tag: str) -> None:
                 shutil.rmtree(str(child))
                 removed.append(child.name)
             except Exception as e:
-                print(f"[TritonCache] Could not remove old cache {child.name}: {e}")
+                logger.warning("[TritonCache] Could not remove old cache %s: %s", child.name, e)
     if removed:
-        print(f"[TritonCache] Pruned {len(removed)} old version cache(s): {removed}")
+        logger.info("[TritonCache] Pruned %d old version cache(s): %s", len(removed), removed)
 
 
 _TRITON_CACHE_TAG = _get_triton_cache_version_tag()
@@ -142,10 +147,8 @@ def _triton_show(name: str, msg: str) -> bool:
 
 def _triton_hide() -> None:
     if _hide_build_dialog is not None:
-        try:
+        with contextlib.suppress(Exception):
             _hide_build_dialog()
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +157,8 @@ def _triton_hide() -> None:
 TRITON_AVAILABLE: bool = False
 try:
     import triton
-    import triton.language as tl
     import triton.compiler.compiler as triton_compiler
+    import triton.language as tl
 
     TRITON_AVAILABLE = True
 
@@ -170,9 +173,7 @@ try:
         from triton.compiler.compiler import CompiledKernel
 
         if not hasattr(CompiledKernel, "num_ctas"):
-            CompiledKernel.num_ctas = property(
-                lambda self: getattr(self.metadata, "num_ctas", 1)
-            )
+            CompiledKernel.num_ctas = property(lambda self: getattr(self.metadata, "num_ctas", 1))
         if not hasattr(CompiledKernel, "cluster_dims"):
             CompiledKernel.cluster_dims = property(
                 lambda self: getattr(self.metadata, "cluster_dims", [1, 1, 1])
@@ -184,18 +185,14 @@ try:
             # metadata attributes in triton are usually C-defined and read-only,
             # but we can try to add them if they are missing.
             if not hasattr(km_cls, "num_ctas"):
-                try:
+                with contextlib.suppress(Exception):
                     km_cls.num_ctas = property(lambda self: 1)
-                except Exception:
-                    pass
             if not hasattr(km_cls, "cluster_dims"):
-                try:
+                with contextlib.suppress(Exception):
                     km_cls.cluster_dims = property(lambda self: [1, 1, 1])
-                except Exception:
-                    pass
 
     except Exception as e:
-        print(f"[TritonOps] Warning: Failed to apply Inductor compatibility patch: {e}")
+        logger.warning("[TritonOps] Failed to apply Inductor compatibility patch: %s", e)
 
 except ImportError:
     pass
@@ -239,9 +236,7 @@ if TRITON_AVAILABLE:
             s = tl.load(s_ptr + ci, mask=mask, other=0.0).to(tl.float32)
             tl.store(o_ptr + base + offs, (w * s * d).to(tl.float16), mask=mask)
 
-    def triton_demod(
-        w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8
-    ) -> torch.Tensor:
+    def triton_demod(w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
         _shown = _triton_show(
             "demod",
             "Compiling Triton kernel: weight demodulation (GFPGAN/GPEN)…\nThis only happens once per GPU/driver combination.",
@@ -358,10 +353,7 @@ if TRITON_AVAILABLE:
         v = tl.load(out_ptr + off, mask=hw_mask, other=0.0).to(tl.float32)
         v = v * scale
         if has_noise:
-            if noise_is_1ch:
-                noise_off = hw_offs
-            else:
-                noise_off = off
+            noise_off = hw_offs if noise_is_1ch else off
             v += tl.load(noise_ptr + noise_off, mask=hw_mask, other=0.0).to(tl.float32)
         v += tl.load(bias_ptr + c).to(tl.float32)
         v = tl.where(v >= 0.0, v, v * neg_slope)
@@ -448,9 +440,7 @@ if TRITON_AVAILABLE:
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -502,9 +492,7 @@ if TRITON_AVAILABLE:
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -562,9 +550,7 @@ if TRITON_AVAILABLE:
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -623,9 +609,7 @@ if TRITON_AVAILABLE:
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -678,16 +662,12 @@ if TRITON_AVAILABLE:
         for start in range(0, HW, BLOCK):
             offs = start + tl.arange(0, BLOCK)
             mask = offs < HW
-            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(
-                tl.float32
-            )
+            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(tl.float32)
             batch_cnt = tl.sum(tl.where(mask, 1.0, 0.0), axis=0)
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -702,9 +682,7 @@ if TRITON_AVAILABLE:
         for start in range(0, HW, BLOCK):
             offs = start + tl.arange(0, BLOCK)
             mask = offs < HW
-            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(
-                tl.float32
-            )
+            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(tl.float32)
             out = v * sc + bi
             if fuse_relu:
                 out = tl.maximum(out, 0.0)
@@ -740,16 +718,12 @@ if TRITON_AVAILABLE:
         for start in range(0, HW, BLOCK):
             offs = start + tl.arange(0, BLOCK)
             mask = offs < HW
-            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(
-                tl.float32
-            )
+            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(tl.float32)
             batch_cnt = tl.sum(tl.where(mask, 1.0, 0.0), axis=0)
             batch_mean = tl.sum(tl.where(mask, v, 0.0), axis=0) / tl.where(
                 batch_cnt > 0, batch_cnt, 1.0
             )
-            batch_m2 = tl.sum(
-                tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0
-            )
+            batch_m2 = tl.sum(tl.where(mask, (v - batch_mean) * (v - batch_mean), 0.0), axis=0)
             delta = batch_mean - mean
             new_count = count + batch_cnt
             safe_nc = tl.where(new_count > 0, new_count, 1.0)
@@ -764,12 +738,8 @@ if TRITON_AVAILABLE:
         for start in range(0, HW, BLOCK):
             offs = start + tl.arange(0, BLOCK)
             mask = offs < HW
-            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(
-                tl.float32
-            )
-            r = tl.load(res_ptr + base + offs * C + c, mask=mask, other=0.0).to(
-                tl.float32
-            )
+            v = tl.load(x_ptr + base + offs * C + c, mask=mask, other=0.0).to(tl.float32)
+            r = tl.load(res_ptr + base + offs * C + c, mask=mask, other=0.0).to(tl.float32)
             out = v * sc + bi + r
             if fuse_relu:
                 out = tl.maximum(out, 0.0)
@@ -925,9 +895,7 @@ if TRITON_AVAILABLE:
                 out = out * tl.sigmoid(out)
             tl.store(y_ptr + base + offs, out.to(tl.float16), mask=mask)
 
-    def triton_group_norm_silu(
-        x, weight, bias, num_groups=32, eps=1e-6, fuse_silu=False
-    ):
+    def triton_group_norm_silu(x, weight, bias, num_groups=32, eps=1e-6, fuse_silu=False):
         _shown = _triton_show(
             "group_norm_silu",
             "Compiling Triton kernel: GroupNorm (CodeFormer)…\nThis only happens once per GPU/driver combination.",
@@ -1002,9 +970,7 @@ if TRITON_AVAILABLE:
         C, HW = x.shape[1], x.shape[2] * x.shape[3]
         y = torch.empty_like(x, dtype=torch.float16)
         BLOCK = min(1024, triton.next_power_of_2(HW))
-        _rmsnormmax_fwd[C,](
-            x, y, gamma, beta, maxval, HW, eps, BLOCK=BLOCK, num_warps=4
-        )
+        _rmsnormmax_fwd[C,](x, y, gamma, beta, maxval, HW, eps, BLOCK=BLOCK, num_warps=4)
         return y
 
     # -----------------------------------------------------------------------
@@ -1036,9 +1002,7 @@ if TRITON_AVAILABLE:
         min_idx = 0
 
         for i in range(N_CODES):
-            emb = tl.load(emb_ptr + i * C + offs_c, mask=mask_c, other=0.0).to(
-                tl.float32
-            )
+            emb = tl.load(emb_ptr + i * C + offs_c, mask=mask_c, other=0.0).to(tl.float32)
             diff = z - emb
             dist = tl.sum(diff * diff, 0)
             if dist < min_dist:
@@ -1058,9 +1022,7 @@ if TRITON_AVAILABLE:
         indices = torch.empty(B * HW, dtype=torch.int32, device=z.device)
 
         BLOCK_C = triton.next_power_of_2(C)
-        _vq_dist_fwd[B * HW,](
-            z_flat, emb, indices, C, emb.shape[0], BLOCK_C=BLOCK_C, num_warps=4
-        )
+        _vq_dist_fwd[B * HW,](z_flat, emb, indices, C, emb.shape[0], BLOCK_C=BLOCK_C, num_warps=4)
         return indices.view(B, H, W).long()
 
     # -----------------------------------------------------------------------
@@ -1068,9 +1030,7 @@ if TRITON_AVAILABLE:
     # -----------------------------------------------------------------------
 
     @triton.jit
-    def _layer_norm_fwd(
-        x_ptr, w_ptr, b_ptr, y_ptr, C, eps: tl.constexpr, BLOCK_C: tl.constexpr
-    ):
+    def _layer_norm_fwd(x_ptr, w_ptr, b_ptr, y_ptr, C, eps: tl.constexpr, BLOCK_C: tl.constexpr):
         row = tl.program_id(0)
         offs = tl.arange(0, BLOCK_C)
         mask = offs < C
@@ -1080,9 +1040,7 @@ if TRITON_AVAILABLE:
         mean = tl.sum(tl.where(mask, x, 0.0), 0) / C
         xc = tl.where(mask, x - mean, 0.0)
         inv_std = tl.rsqrt(tl.sum(xc * xc, 0) / C + eps)
-        tl.store(
-            y_ptr + row * C + offs, (xc * inv_std * w + b).to(tl.float16), mask=mask
-        )
+        tl.store(y_ptr + row * C + offs, (xc * inv_std * w + b).to(tl.float16), mask=mask)
 
     def triton_layernorm(x, weight, bias, eps=1e-6):
         orig_shape = x.shape
@@ -1091,9 +1049,7 @@ if TRITON_AVAILABLE:
         rows = x2d.shape[0]
         y = torch.empty_like(x2d, dtype=torch.float16)
         BLOCK_C = triton.next_power_of_2(C)
-        _layer_norm_fwd[(rows,)](
-            x2d, weight, bias, y, C, eps=eps, BLOCK_C=BLOCK_C, num_warps=4
-        )
+        _layer_norm_fwd[(rows,)](x2d, weight, bias, y, C, eps=eps, BLOCK_C=BLOCK_C, num_warps=4)
         return y.view(orig_shape)
 
     # -----------------------------------------------------------------------
@@ -1214,9 +1170,7 @@ if TRITON_AVAILABLE:
         )
         return out
 
-    def triton_pixel_shift_insert(
-        tiles: torch.Tensor, img_hwc: torch.Tensor, dim: int
-    ) -> None:
+    def triton_pixel_shift_insert(tiles: torch.Tensor, img_hwc: torch.Tensor, dim: int) -> None:
         """Scatter BCHW tiles back into an HWC image in-place.
 
         Args:
@@ -1339,15 +1293,12 @@ if TRITON_AVAILABLE:
         )
         return col
 
-
 else:
     # -- Stubs when Triton is not available --
     def register_triton_build_dialog(show_fn, hide_fn) -> None:
         pass  # no-op: no Triton to monitor
 
-    def triton_demod(
-        w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8
-    ) -> torch.Tensor:
+    def triton_demod(w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
         raise RuntimeError("triton unavailable")
 
     def triton_fused_gpen_act(
@@ -1393,9 +1344,7 @@ else:
     def triton_pixel_shift_extract(img_hwc: torch.Tensor, dim: int) -> torch.Tensor:
         raise RuntimeError("triton unavailable")
 
-    def triton_pixel_shift_insert(
-        tiles: torch.Tensor, img_hwc: torch.Tensor, dim: int
-    ) -> None:
+    def triton_pixel_shift_insert(tiles: torch.Tensor, img_hwc: torch.Tensor, dim: int) -> None:
         raise RuntimeError("triton unavailable")
 
     def triton_im2col_reflect(x: torch.Tensor, k: int, pad: int) -> torch.Tensor:

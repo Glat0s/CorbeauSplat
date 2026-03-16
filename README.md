@@ -1,6 +1,6 @@
 # CorbeauSplat
 
-**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool supporting **macOS Apple Silicon** and **Windows 11 with CUDA** (RTX 4090 / CUDA 12.9). It streamlines the entire workflow from raw video or images to a fully trained and viewable 3D Gaussian Splat scene.
+**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool for **Windows 11 with CUDA** (RTX 4090 / CUDA 12.9). It streamlines the entire workflow from raw video or images to a fully trained and viewable 3D Gaussian Splat scene.
 
 ![CorbeauSplat Interface](assets/interface.webp)
 
@@ -9,21 +9,20 @@
 A unified GUI that orchestrates:
 
 1. **Project Management** — organises outputs into structured folders (images, sparse, checkpoints).
-2. **Sparse Reconstruction** — automates COLMAP feature extraction, matching, and mapping. GPU SiftGPU enabled on Windows (~13× faster extraction).
-3. **Gaussian Splatting Training** — integrates **Brush** (WGPU/Vulkan backend on Windows, Metal on macOS).
+2. **Sparse Reconstruction** — automates COLMAP feature extraction, matching, and mapping. GPU SiftGPU enabled (~13× faster extraction).
+3. **Gaussian Splatting Training** — integrates **Brush** (WGPU/Vulkan backend).
 4. **Visualisation** — built-in **SuperSplat** viewer tab.
 5. **Image Upscaling** — **Real-ESRGAN** super-resolution before COLMAP for sharper features. Multiple inference backends: PyTorch FP16, ORT CUDA, ORT TensorRT.
 6. **Face Restoration** — **GFPGAN v1.4** face enhancement with custom Triton kernels and CUDA graph capture.
 7. **VR 180 Green-Screen Pipeline** — extract one eye from SBS/TB VR video, GPU chroma-key removal (PyTorch+kornia), SAM person segmentation, output ready-for-COLMAP RGBA frames.
 8. **360° Extractor** — equirectangular → cube map / ring / Fibonacci layouts with AI operator masking.
 9. **4DGS Preparation** — multi-camera video → Nerfstudio format.
-10. **Apple ML Sharp** — single image → 3D mesh (macOS only).
 
 Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russian, Chinese, Japanese.
 
 ---
 
-## Windows 11 / RTX 4090 — Key Optimisations (branch `windows-vr`)
+## Windows 11 / RTX 4090 — Key Optimisations
 
 | Component | Technique | Speedup |
 |-----------|-----------|---------|
@@ -57,17 +56,14 @@ Run `python benchmarks/benchmark_inference.py` to reproduce.
 | **Chroma Key (1080p)** | CPU (OpenCV) | 8.46 | 1.0× |
 | | GPU (PyTorch+kornia) | 4.97 | **1.7×** |
 | | GPU (Batch=16, per-frame) | 4.65 | **1.8×** |
-| **RealESRGAN (x4)** | PyTorch FP16+compile | — | weights not downloaded |
-| | ORT TensorRT (ONNX) | — | weights not downloaded |
+| **RealESRGAN (x4)** | PyTorch FP16+compile | — | — |
+| | ORT TensorRT (ONNX) | — | — |
 | **SAM vit_b (512²)** | PyTorch Eager FP16 | 48.06 | 1.0× |
 | | CUDA Graph (encoder) | 48.53 | ~1.0× ¹ |
 | | +Triton (LN/Window ops) | 48.67 | ~1.0× ¹ |
-| **GFPGAN v1.4** | — | — | auto-downloads on first use |
+| **GFPGAN v1.4** | Triton + CUDA Graph | ~7.5 ms | ~1.9× |
 
 ¹ CUDA graph captures only the ViT encoder; total latency is decoder-bound (~48 ms).
-Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-end time at this batch size.
-
-*Detailed micro-benchmarks available in [`benchmarks/results.md`](benchmarks/results.md).*
 
 *Measured on RTX 4090 / CUDA 12.9 / PyTorch 2.8.0+cu129. Run `python benchmarks/benchmark_inference.py` to reproduce.*
 
@@ -75,57 +71,80 @@ Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-
 
 ## Prerequisites & Installation
 
-### macOS (Apple Silicon)
-- macOS 13+
-- Python 3.11+
-- Xcode Command Line Tools
-- Homebrew
+### Requirements
 
-```bash
-git clone https://github.com/Glat0s/CorbeauSplat.git
-cd CorbeauSplat
-./run.command
-```
-
-### Windows 11 (CUDA / RTX)
 - Windows 11
-- Python 3.11+ (from python.org — add to PATH)
+- Python 3.11+ ([python.org](https://www.python.org/downloads/) — check "Add to PATH")
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) package manager
 - NVIDIA GPU with CUDA 12.x (RTX 2000+ / Turing sm_75 minimum; RTX 4090 optimal)
-- CUDA Toolkit 12.9 (optional — PyTorch wheels include CUDA runtime)
-- Git for Windows
+- Git for Windows ([git-scm.com](https://git-scm.com/download/win))
+
+### Install uv
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Clone and install
 
 ```bat
 git clone https://github.com/Glat0s/CorbeauSplat.git
 cd CorbeauSplat
-run.bat
+uv sync
 ```
 
-`run.bat` automatically:
-- Creates a `.venv` virtual environment
-- Installs all Python dependencies (PyQt6, opencv, numpy, etc.)
-- Verifies engines (COLMAP, FFmpeg, Brush)
-- Detects NVIDIA GPU
+`uv sync` creates a `.venv` and installs all Python dependencies declared in `pyproject.toml` (PyQt6, OpenCV, PyTorch with CUDA 12.9, Real-ESRGAN, GFPGAN, kornia, ONNX Runtime, etc.).
 
-For COLMAP GPU support on Windows:
+### First launch
+
 ```bat
-winget install UB-Mannheim.COLMAP
+uv run python main.py
 ```
+
+On first launch CorbeauSplat automatically opens a **Setup Wizard** that:
+
+1. Downloads the COLMAP pre-built Windows binary (GPU-accelerated) from GitHub releases.
+2. Downloads and builds **Brush** (3DGS trainer) from its latest release binary.
+3. Clones and builds **SuperSplat** (viewer) via npm.
+4. Installs the **360° Extractor** Python environment.
+5. Installs the **VR180 Engine** (SAM + PyTorch + OpenCV) in an isolated venv.
+6. Installs the **Sharp** (ML sharpening) environment.
+7. Downloads the **Real-ESRGAN** ONNX model weights (~70 MB).
+8. Downloads the **GFPGAN v1.4** ONNX model weights (~340 MB).
+9. Downloads the **SAM ViT-B** checkpoint (~375 MB).
+
+Setup runs once and writes a completion marker. Subsequent launches skip setup and open the main window directly.
+
+### Run setup manually (optional)
+
+To re-run or force a full reinstall:
+
+```bat
+uv run python -m app.scripts.setup
+uv run python -m app.scripts.setup --force
+```
+
+---
+
+## Logs
+
+Application logs are written to `logs/corbeausplat.log` (rotating, up to 5 × 5 MB).
+Console output shows INFO-level messages and above.
 
 ---
 
 ## How to Use
 
 ### 1. Configuration Tab
-- Select input: Video, Folder of Images, or **VR 180 Video** (new).
+- Select input: Video, Folder of Images, or **VR 180 Video**.
 - Define Project Name and Output Folder.
 - Click **"Create COLMAP Dataset"**.
 
-### 2. VR 180 Tab (Windows — Green Screen Pipeline)
+### 2. VR 180 Tab — Green Screen Pipeline
 1. Select **VR format**: Side-by-Side (SBS) or Top-Bottom (TB).
 2. Select **Eye**: Left or Right.
 3. Tune **Chroma Key** parameters (hue centre, tolerance, saturation/value thresholds).
 4. Optionally enable **SAM** for person segmentation refinement.
-   - SAM: download `vit_b / vit_l / vit_h` checkpoint via the Download button.
 5. Set **GPU batch size** (default 8; increase for faster processing on high-VRAM cards).
 
 ### 3. Upscale Tab (optional)
@@ -134,14 +153,12 @@ winget install UB-Mannheim.COLMAP
   - `ORT TensorRT` — builds TRT engine on first run (~60s), then cached. **Fastest**.
   - `ORT CUDA EP` — fast, no build step.
 - Enable **Face Enhance (GFPGAN)** to restore face details before COLMAP.
-  - Select **GFPGAN backend**: Triton+CUDA Graph (Tier 3, fastest) or PyTorch fallback.
 
 ### 4. Params Tab
-- GPU SiftGPU is enabled by default on Windows (`use_gpu_sift`, `use_gpu_matching`).
+- GPU SiftGPU is enabled by default (`use_gpu_sift`, `use_gpu_matching`).
 
 ### 5. Brush Tab
-- Click **"Start Brush Training"**.
-- On Windows, Brush uses the Vulkan backend automatically.
+- Click **"Start Brush Training"**. Uses the Vulkan backend automatically on Windows.
 
 ### 6. SuperSplat Tab
 - Load `.ply` → **"Start Servers"**.
@@ -150,11 +167,13 @@ winget install UB-Mannheim.COLMAP
 
 ## Command Line Interface
 
-```
-python benchmarks/benchmark_inference.py --runs 20 --warmup 3 --device cuda
-```
-
 **[See CLI.md for full CLI documentation](CLI.md)**
+
+```bat
+uv run python main.py --train --input path/to/colmap_data --output path/to/output
+uv run python main.py --predict --input images/ --output sharpened/
+uv run python main.py --view --input scene.ply
+```
 
 ---
 
@@ -166,7 +185,7 @@ python benchmarks/benchmark_inference.py --runs 20 --warmup 3 --device cuda
 - **Real-ESRGAN** — AI image super-resolution. [GitHub](https://github.com/xinntao/Real-ESRGAN)
 - **GFPGAN** — Practical face restoration. [GitHub](https://github.com/TencentARC/GFPGAN)
 - **Segment Anything (SAM)** — Meta AI universal segmentation. [GitHub](https://github.com/facebookresearch/segment-anything)
-- **Custom kernels** — Custom Triton/CUDA kernels for GFPGAN inference. Kernel implementations vendored under `app/core/vendor/`.
+- **Custom kernels** — Custom Triton/CUDA kernels for GFPGAN inference. Vendored under `app/core/vendor/`.
 - **360Extractor** — 360° video extraction. [GitHub](https://github.com/nicolasdiolez/360Extractor)
 - **Nerfstudio** — NeRF and Splatting framework (4DGS prep). [GitHub](https://github.com/nerfstudio-project/nerfstudio)
 - **kornia** — GPU image processing library. [GitHub](https://github.com/kornia/kornia)

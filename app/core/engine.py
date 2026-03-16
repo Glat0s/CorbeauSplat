@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import platform
 import shutil
@@ -716,7 +717,7 @@ class ColmapEngine(BaseEngine):
                 try:
                     send2trash.send2trash(str(item))
                 except Exception as e:
-                    print(f"Failed to trash {item}. Reason: {e}")
+                    logging.getLogger(__name__).warning("Failed to trash %s: %s", item, e)
 
             return True, "Content moved to trash"
         except Exception as e:

@@ -1,5 +1,6 @@
 import contextlib
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -7,6 +8,8 @@ import sys
 from pathlib import Path
 
 from app.core.system import resolve_project_root
+
+logger = logging.getLogger(__name__)
 
 # Constants
 EXTRACTOR_360_REPO = "https://github.com/nicolasdiolez/360Extractor"
@@ -58,7 +61,7 @@ class EngineDependency:
             ).strip()
             return output.split()[0] if output else ""
         except Exception as e:
-            print(f"Warning: Failed to get remote version for {self.repo_url}: {e}")
+            logger.warning("Failed to get remote version for %s: %s", self.repo_url, e)
             return ""
 
     def update_git(self):
@@ -67,10 +70,10 @@ class EngineDependency:
             return
         self.engines_dir.mkdir(parents=True, exist_ok=True)
         if not self.target_dir.exists():
-            print(f"Cloning {self.name}...")
+            logger.info("Cloning %s...", self.name)
             subprocess.check_call(["git", "clone", self.repo_url, str(self.target_dir)])
         else:
-            print(f"Updating {self.name}...")
+            logger.info("Updating %s...", self.name)
             subprocess.check_call(["git", "-C", str(self.target_dir), "pull"])
 
     def install(self):
@@ -80,11 +83,11 @@ class EngineDependency:
     def uninstall(self):
         """Standard uninstallation: remove target_dir and version file"""
         if self.target_dir.exists():
-            print(f"Removing {self.target_dir}...")
+            logger.info("Removing %s...", self.target_dir)
             shutil.rmtree(str(self.target_dir))
         if self.version_file.exists():
             self.version_file.unlink()
-        print(f"{self.name} uninstalled.")
+        logger.info("%s uninstalled.", self.name)
         return True
 
 
@@ -106,13 +109,13 @@ class PipEngine(EngineDependency):
 
     def create_venv(self, python_cmd=sys.executable):
         if self.venv_dir.exists() and not self.python_bin.exists():
-            print(
-                f"Broken venv detected at {self.venv_dir} (symlink or binary missing). Removing..."
+            logger.warning(
+                "Broken venv at %s (symlink or binary missing) — removing...", self.venv_dir
             )
             shutil.rmtree(str(self.venv_dir))
 
         if not self.venv_dir.exists():
-            print(f"Creating venv: {self.venv_dir}")
+            logger.info("Creating venv: %s", self.venv_dir)
             subprocess.check_call([python_cmd, "-m", "venv", str(self.venv_dir)])
 
         # Ensure pip is present (sometimes venv is created --without-pip on some systems)
@@ -131,7 +134,7 @@ class PipEngine(EngineDependency):
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            print(f"Warning: Failed to upgrade pip in {self.venv_dir}: {e}")
+            logger.warning("Failed to upgrade pip in %s: %s", self.venv_dir, e)
 
     def pip_install(self, args, cwd=None):
         env = os.environ.copy()
@@ -149,7 +152,7 @@ class PipEngine(EngineDependency):
     def uninstall(self):
         """Remove venv and target_dir"""
         if self.venv_dir.exists():
-            print(f"Removing venv {self.venv_dir}...")
+            logger.info("Removing venv %s...", self.venv_dir)
             shutil.rmtree(str(self.venv_dir))
         return super().uninstall()
 
@@ -172,7 +175,7 @@ class DependencyManager:
         return {}
 
     def main_install(self, check_only=False, startup=False):
-        print("--- System Dependency Check ---")
+        logger.info("--- System Dependency Check ---")
         install_system_dependencies(check_only=check_only or startup)
 
         config = self.get_config()
@@ -195,21 +198,21 @@ class DependencyManager:
                 if check_only:
                     pass  # Just report status later
                 elif startup:
-                    print(f">>> Auto-installing {name.capitalize()} on startup...")
+                    logger.info("Auto-installing %s on startup...", name.capitalize())
                     try:
                         engine.install()
-                        print(f"✅ {name.capitalize()} installed automatically.")
+                        logger.info("%s installed automatically.", name.capitalize())
                     except Exception as e:
-                        print(f"❌ Auto-install failed for {name}: {e}")
+                        logger.error("Auto-install failed for %s: %s", name, e)
                 else:
-                    print(f">>> Auto-installing missing engine [{name}]...")
+                    logger.info("Auto-installing missing engine [%s]...", name)
                     engine.install()
 
                 # Report status for check/startup
                 if not engine.is_installed():
                     status = f"  ❌ {name.capitalize()}: Missing"
                     if startup or check_only:
-                        print(status)
+                        logger.info(status)
                     missing_engines_startup = True
 
             elif remote and local and remote != local_clean:
@@ -222,23 +225,25 @@ class DependencyManager:
                 )
 
                 if startup and auto_update:
-                    print(f">>> Auto-updating {name.capitalize()}...")
+                    logger.info("Auto-updating %s...", name.capitalize())
                     try:
                         engine.install()
-                        print(f"✅ {name.capitalize()} updated.")
+                        logger.info("%s updated.", name.capitalize())
                     except Exception as e:
-                        print(f"❌ Auto-update failed for {name}: {e}")
+                        logger.error("Auto-update failed for %s: %s", name, e)
                 elif check_only:
-                    print(f"  ⚠️  {name.capitalize()}: Update available ({local_clean} -> {remote})")
+                    logger.warning(
+                        "%s: update available (%s -> %s)", name.capitalize(), local_clean, remote
+                    )
                 else:
-                    print(f">>> Auto-updating {name} ({local_clean} -> {remote})...")
+                    logger.info("Auto-updating %s (%s -> %s)...", name, local_clean, remote)
                     engine.install()
             else:
                 if check_only:
-                    print(f"  ✅ {name.capitalize()}: Ready")
+                    logger.info("%s: ready.", name.capitalize())
 
         if missing_engines_startup:
-            print("\nℹ️  Note: Automatically installed missing engines.")
+            logger.info("Note: automatically installed missing engines.")
 
 
 class Extractor360EngineDep(PipEngine):
@@ -283,10 +288,10 @@ class BrushEngineDep(EngineDependency):
                 data = _json.loads(resp.read())
                 tag = data.get("tag_name", "")
                 if tag:
-                    print(f"Latest Brush release: {tag}")
+                    logger.info("Latest Brush release: %s", tag)
                     return tag
         except Exception as e:
-            print(f"⚠️ Could not fetch latest Brush version: {e}")
+            logger.warning("Could not fetch latest Brush version: %s", e)
         return ""
 
     def _get_head_commit(self) -> str:
@@ -297,7 +302,7 @@ class BrushEngineDep(EngineDependency):
             ).strip()
             return out.split()[0][:12] if out else ""
         except Exception as e:
-            print(f"⚠️ Could not fetch HEAD commit: {e}")
+            logger.warning("Could not fetch HEAD commit: %s", e)
             return ""
 
     def install(self):
@@ -320,8 +325,9 @@ class BrushEngineDep(EngineDependency):
             requested_source = build_mode == "source"
 
             if installed_as_source != requested_source:
-                print(
-                    f"Build mode changed ({'release → source' if requested_source else 'source → release'}). Replacing existing binary..."
+                logger.info(
+                    "Build mode changed (%s). Replacing existing binary...",
+                    "release -> source" if requested_source else "source -> release",
                 )
                 self.bin_path.unlink()
                 if self.version_file.exists():
@@ -330,28 +336,28 @@ class BrushEngineDep(EngineDependency):
                 # Same mode — compare versions
                 local_ref = local_ver.replace("-source", "")
                 if remote_ref and local_ref == remote_ref:
-                    print(f"Brush {local_ver} is already up to date.")
+                    logger.info("Brush %s is already up to date.", local_ver)
                     return
                 elif remote_ref:
-                    print(f"Brush update: {local_ref} → {remote_ref}. Updating...")
+                    logger.info("Brush update: %s -> %s. Updating...", local_ref, remote_ref)
                     self.bin_path.unlink()
                     if self.version_file.exists():
                         self.version_file.unlink()
                 else:
-                    print("Brush installed, could not check for updates.")
+                    logger.warning("Brush installed, could not check for updates.")
                     return
 
         if build_mode == "source":
             head = remote_ref or "HEAD"
-            print(f"Source mode selected — compiling from HEAD ({head[:7]})...")
+            logger.info("Source mode selected — compiling from HEAD (%s)...", head[:7])
             if not self._install_from_source(head):
-                print(
-                    "❌ Source compilation failed. Relaunch after verifying your Rust/cargo installation."
+                logger.error(
+                    "Source compilation failed. Relaunch after verifying your Rust/cargo installation."
                 )
         else:
-            print(f"Release mode selected ({release_version}). Downloading...")
+            logger.info("Release mode selected (%s). Downloading...", release_version)
             if not self._install_from_release(release_version):
-                print("❌ Release download failed. Check your connection.")
+                logger.error("Release download failed. Check your connection.")
 
     def _install_from_release(self, version: str) -> bool:
         import urllib.request
@@ -359,25 +365,25 @@ class BrushEngineDep(EngineDependency):
 
         platform_suffix = "x86_64-pc-windows-msvc.zip"
         release_url = f"https://github.com/ArthurBrussee/brush/releases/download/{version}/brush-app-{platform_suffix}"
-        print(f"Downloading Brush {version} from {release_url}...")
+        logger.info("Downloading Brush %s from %s...", version, release_url)
 
         archive_path = self.engines_dir / f"brush-app-{platform_suffix}"
         try:
             urllib.request.urlretrieve(release_url, str(archive_path))
         except Exception as e:
-            print(f"⚠️ Download failed: {e}")
+            logger.warning("Download failed: %s", e)
             if archive_path.exists():
                 archive_path.unlink()
             return False
 
-        print("Extracting Brush...")
+        logger.info("Extracting Brush...")
         extract_dir = self.engines_dir / f"brush-extract-{version}"
         extract_dir.mkdir(exist_ok=True)
         try:
             with zipfile.ZipFile(archive_path, "r") as zf:
                 zf.extractall(extract_dir)  # nosec B202
         except Exception as e:
-            print(f"⚠️ Extraction failed: {e}")
+            logger.warning("Extraction failed: %s", e)
             archive_path.unlink(missing_ok=True)
             shutil.rmtree(str(extract_dir), ignore_errors=True)
             return False
@@ -396,7 +402,7 @@ class BrushEngineDep(EngineDependency):
                 break
 
         if not extracted_bin:
-            print("⚠️ Could not find brush executable in archive.")
+            logger.error("Could not find brush executable in archive.")
             shutil.rmtree(str(extract_dir), ignore_errors=True)
             return False
 
@@ -404,19 +410,19 @@ class BrushEngineDep(EngineDependency):
         shutil.move(str(extracted_bin), str(dest))
         shutil.rmtree(str(extract_dir), ignore_errors=True)
         self.save_local_version(version)
-        print(f"✅ Brush {version} installed successfully from release binary.")
+        logger.info("Brush %s installed successfully from release binary.", version)
         return True
 
     def _install_from_source(self, head_ref: str) -> bool:
         """Compiles Brush from the latest commit on the default branch (HEAD)."""
-        print(f"Compiling Brush from source (HEAD: {head_ref[:7] if head_ref else '?'})...")
+        logger.info("Compiling Brush from source (HEAD: %s)...", head_ref[:7] if head_ref else "?")
         cargo = shutil.which("cargo")
         if not cargo:
             if not install_rust_toolchain():
                 return False
             cargo = shutil.which("cargo")
             if not cargo:
-                print("❌ cargo still not found after Rust install.")
+                logger.error("cargo still not found after Rust install.")
                 return False
 
         # Build from HEAD (no --tag), try --locked first then without
@@ -439,16 +445,16 @@ class BrushEngineDep(EngineDependency):
         for extra in [["--locked"], []]:
             cmd = base_cmd + extra
             flag_str = " --locked" if extra else " (no lockfile)"
-            print(f"cargo install{flag_str}...")
+            logger.info("cargo install%s...", flag_str)
             try:
                 subprocess.check_call(cmd, env=env)
                 success = True
                 break
             except subprocess.CalledProcessError as e:
-                print(f"⚠️ Attempt failed{flag_str}: {e}")
+                logger.warning("Attempt failed%s: %s", flag_str, e)
 
         if not success:
-            print("❌ Brush source compilation failed.")
+            logger.error("Brush source compilation failed.")
             return False
 
         bin_dir = self.engines_dir / "bin"
@@ -462,13 +468,15 @@ class BrushEngineDep(EngineDependency):
         shutil.rmtree(str(bin_dir), ignore_errors=True)
 
         if not moved:
-            print("❌ Binary not found after compilation.")
+            logger.error("Binary not found after compilation.")
             return False
 
         # Save HEAD commit as version identifier
         version_str = f"{head_ref[:12]}-source" if head_ref else "HEAD-source"
         self.save_local_version(version_str)
-        print(f"✅ Brush compiled from HEAD ({head_ref[:7] if head_ref else '?'}) and installed.")
+        logger.info(
+            "Brush compiled from HEAD (%s) and installed.", head_ref[:7] if head_ref else "?"
+        )
         return True
 
 
@@ -485,7 +493,7 @@ class SharpEngineDep(PipEngine):
         self.update_git()
         py_cmd = self._find_python_310_311()
         if not py_cmd:
-            print("Python 3.10–3.12 not found for Sharp. Install Python 3.11 and retry.")
+            logger.error("Python 3.10-3.12 not found for Sharp. Install Python 3.11 and retry.")
             return
 
         self.create_venv(py_cmd)
@@ -559,7 +567,7 @@ def install_system_dependencies(check_only=False):
 
 
 def _install_system_dependencies_windows(check_only=False):
-    print("--- System Dependency Check (Windows) ---")
+    logger.info("--- System Dependency Check (Windows) ---")
     engines_dir = resolve_project_root() / "engines"
     engines_dir.mkdir(parents=True, exist_ok=True)
 
@@ -575,16 +583,16 @@ def _install_system_dependencies_windows(check_only=False):
         missing.append("ffmpeg")
 
     if not missing:
-        print("✅ System dependencies present.")
+        logger.info("All system dependencies present.")
         return True
 
-    print(f"Missing: {', '.join(missing)}")
+    logger.warning("Missing system dependencies: %s", ", ".join(missing))
     if check_only:
-        print("ℹ️ Audit mode: automatic installation skipped.")
+        logger.info("Audit mode: automatic installation skipped.")
         return False
 
     if "colmap" in missing and not _download_colmap_windows(engines_dir):
-        print("   Download COLMAP manually: https://github.com/colmap/colmap/releases")
+        logger.warning("Download COLMAP manually from: https://github.com/colmap/colmap/releases")
 
     if "ffmpeg" in missing:
         installed = False
@@ -603,7 +611,9 @@ def _install_system_dependencies_windows(check_only=False):
             except Exception:
                 pass
         if not installed:
-            print("   Download FFmpeg manually: https://www.gyan.dev/ffmpeg/builds/ (add to PATH)")
+            logger.warning(
+                "Download FFmpeg manually from: https://www.gyan.dev/ffmpeg/builds/ (add to PATH)"
+            )
 
     return True
 
@@ -626,7 +636,7 @@ def _download_colmap_windows(engines_dir: Path) -> bool:
     import urllib.request
     import zipfile
 
-    print("Fetching latest COLMAP release from GitHub...")
+    logger.info("Fetching latest COLMAP release from GitHub...")
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/colmap/colmap/releases/latest",
@@ -635,7 +645,7 @@ def _download_colmap_windows(engines_dir: Path) -> bool:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = _json.loads(resp.read())
     except Exception as e:
-        print(f"⚠️ Could not fetch COLMAP release info: {e}")
+        logger.error("Could not fetch COLMAP release info: %s", e)
         return False
 
     # Prefer CUDA build, fall back to no-cuda
@@ -654,27 +664,27 @@ def _download_colmap_windows(engines_dir: Path) -> bool:
 
     chosen = cuda_asset or no_cuda_asset
     if not chosen:
-        print("⚠️ No Windows COLMAP binary found in latest release.")
+        logger.error("No Windows COLMAP binary found in latest release.")
         return False
 
     asset_url, asset_name = chosen
-    print(f"Downloading COLMAP: {asset_name} ...")
+    logger.info("Downloading COLMAP: %s...", asset_name)
     archive_path = engines_dir / asset_name
     try:
         urllib.request.urlretrieve(asset_url, str(archive_path))
     except Exception as e:
-        print(f"⚠️ COLMAP download failed: {e}")
+        logger.error("COLMAP download failed: %s", e)
         archive_path.unlink(missing_ok=True)
         return False
 
-    print("Extracting COLMAP...")
+    logger.info("Extracting COLMAP...")
     colmap_dir = engines_dir / "colmap"
     colmap_dir.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(archive_path, "r") as zf:
             zf.extractall(colmap_dir)  # nosec B202
     except Exception as e:
-        print(f"⚠️ COLMAP extraction failed: {e}")
+        logger.error("COLMAP extraction failed: %s", e)
         archive_path.unlink(missing_ok=True)
         return False
     finally:
@@ -682,14 +692,14 @@ def _download_colmap_windows(engines_dir: Path) -> bool:
 
     found = _find_colmap_in_engines(engines_dir)
     if found:
-        print(f"✅ COLMAP installed: {found}")
+        logger.info("COLMAP installed: %s", found)
         return True
-    print("⚠️ Could not find colmap.exe after extraction.")
+    logger.error("Could not find colmap.exe after extraction.")
     return False
 
 
 def install_node_js():
-    print("Installing Node.js via winget...")
+    logger.info("Installing Node.js via winget...")
     try:
         subprocess.check_call(["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"])
         # Refresh PATH so node/npm are found in the current process
@@ -698,7 +708,7 @@ def install_node_js():
             os.environ["PATH"] = str(node_dir) + os.pathsep + os.environ.get("PATH", "")
         return True
     except Exception:
-        print("Please install Node.js manually from https://nodejs.org/")
+        logger.warning("Please install Node.js manually from https://nodejs.org/")
         return False
 
 
@@ -725,13 +735,13 @@ def _find_npm():
 
 
 def install_build_tools():
-    print("Installing CMake & Ninja via winget...")
+    logger.info("Installing CMake and Ninja via winget...")
     try:
         subprocess.check_call(["winget", "install", "--id", "Kitware.CMake", "-e", "--silent"])
         subprocess.check_call(["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"])
         return True
     except Exception:
-        print("Please install CMake and Ninja manually.")
+        logger.warning("Please install CMake and Ninja manually.")
         return False
 
 
@@ -784,7 +794,7 @@ def get_remote_version(repo_url):
         if output:
             return output.split()[0]
     except Exception as e:
-        print(f"Attention: Impossible de verifier la version distante pour {repo_url}: {e}")
+        logger.warning("Failed to verify remote version for %s: %s", repo_url, e)
     return None
 
 
@@ -803,7 +813,7 @@ def save_local_version(version_file: Path, version):
             version_file.parent.mkdir(parents=True, exist_ok=True)
             version_file.write_text(version)
         except Exception as e:
-            print(f"Attention: Impossible d'enregistrer la version locale: {e}")
+            logger.warning("Failed to save local version: %s", e)
 
 
 # --- CHECKERS ---
@@ -825,7 +835,7 @@ def check_cmake_ninja():
 
 
 def install_rust_toolchain():
-    print("Installing Rust (cargo)...")
+    logger.info("Installing Rust (cargo)...")
     try:
         import tempfile
         import urllib.request
@@ -840,10 +850,10 @@ def install_rust_toolchain():
         cargo_bin = Path.home() / ".cargo" / "bin"
         if cargo_bin.exists():
             os.environ["PATH"] = str(cargo_bin) + os.pathsep + os.environ["PATH"]
-            print("Rust installed and added to PATH.")
+            logger.info("Rust installed and added to PATH.")
             return True
     except Exception as e:
-        print(f"Error installing Rust: {e}")
+        logger.error("Error installing Rust: %s", e)
     return False
 
 
@@ -857,7 +867,7 @@ class SuperSplatEngineDep(EngineDependency):
 
         npm = _find_npm()
         if not npm:
-            print("❌ npm not found. Install Node.js from https://nodejs.org/ and retry.")
+            logger.error("npm not found. Install Node.js from https://nodejs.org/ and retry.")
             return
 
         # Reset local changes before pull to avoid conflicts (package-lock.json)
@@ -882,8 +892,8 @@ class GlomapEngineDep(EngineDependency):
     def install(self):
         # GLOMAP has no pre-built Windows binaries; source build requires MSVC.
         # Skip on Windows — COLMAP's built-in exhaustive mapper is used as fallback.
-        print(
-            "ℹ️ GLOMAP: no pre-built Windows binary available. COLMAP exhaustive mapper will be used instead."
+        logger.info(
+            "GLOMAP: no pre-built Windows binary available. COLMAP exhaustive mapper will be used instead."
         )
 
 
@@ -919,7 +929,7 @@ class UpscaleEngineDep(PipEngine):
         else:
             self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
         pkgs = ["realesrgan==0.3.0", "kornia==0.8.2", "onnxruntime-gpu==1.24.3"]
-        print(f"Installing/Updating: {', '.join(pkgs)}...")
+        logger.info("Installing/updating: %s...", ", ".join(pkgs))
         self.pip_install(pkgs)
 
 
@@ -961,7 +971,7 @@ class VR180EngineDep(PipEngine):
         # Install SAM (Segment Anything Model) from Meta
         self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
         self.save_local_version("sam-installed")
-        print("✅ VR180 engine (SAM + OpenCV + kornia + onnxruntime-gpu) installed.")
+        logger.info("VR180 engine (SAM + OpenCV + kornia + onnxruntime-gpu) installed.")
 
     def is_installed(self) -> bool:
         if not self.python_bin.exists():

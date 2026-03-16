@@ -18,6 +18,7 @@ Supports both variants via GFPGANTorch.from_onnx():
 from __future__ import annotations
 
 import importlib.util
+import logging
 import math
 import os
 import sys
@@ -28,15 +29,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Triton kernels (preferred — no MSVC required, works on Windows)
 # ---------------------------------------------------------------------------
 try:
-    from custom_kernels.triton_ops import (
-        TRITON_AVAILABLE as _TRITON_AVAILABLE,
-        triton_demod as _triton_demod,
-        triton_fused_gfpgan_act as _triton_gfpgan_act,
-    )
+    from custom_kernels.triton_ops import TRITON_AVAILABLE as _TRITON_AVAILABLE
+    from custom_kernels.triton_ops import triton_demod as _triton_demod
+    from custom_kernels.triton_ops import triton_fused_gfpgan_act as _triton_gfpgan_act
 except Exception:
     _TRITON_AVAILABLE = False
     _triton_demod = None  # type: ignore[assignment]
@@ -151,10 +152,10 @@ def _try_load_pyd(pyd_path: Path, tag: str) -> bool:
         assert spec.loader is not None
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
         _ext_obj = mod  # type: ignore[assignment]
-        print(f"[GFPGANTorch] Demod extension loaded ({tag}).")
+        logger.info("[GFPGANTorch] Demod extension loaded (%s).", tag)
         return True
     except Exception as e:
-        print(f"[GFPGANTorch] Load failed ({tag}): {e}")
+        logger.warning("[GFPGANTorch] Load failed (%s): %s", tag, e)
         return False
 
 
@@ -171,22 +172,18 @@ def _load_ext():
         return
 
     # 3. JIT compile (fallback — requires MSVC on Windows / GCC on Linux)
-    import sys as _sys
     import shutil as _shutil
+    import sys as _sys
 
-    if (
-        _sys.platform == "win32"
-        and _shutil.which("cl") is None
-        and _shutil.which("cl.exe") is None
-    ):
-        print(
-            "[GFPGANTorch] Demod CUDA extension not found and CL.exe is unavailable.\n"
-            "  Run: python custom_kernels/build_kernels.py  (requires Visual Studio Build Tools)\n"
-            "  -> Using Triton / pure-PyTorch demod fallback."
+    if _sys.platform == "win32" and _shutil.which("cl") is None and _shutil.which("cl.exe") is None:
+        logger.warning(
+            "[GFPGANTorch] Demod CUDA extension not found and CL.exe is unavailable. "
+            "Run: python custom_kernels/build_kernels.py (requires Visual Studio Build Tools). "
+            "Using Triton / pure-PyTorch demod fallback."
         )
         _ext_obj = None
         return
-    print("[GFPGANTorch] Compiling demod extension for current GPU (requires MSVC)...")
+    logger.info("[GFPGANTorch] Compiling demod extension for current GPU (requires MSVC)...")
     try:
         from torch.utils.cpp_extension import load_inline
 
@@ -199,9 +196,9 @@ def _load_ext():
             extra_cuda_cflags=["--use_fast_math", "-O3"],
             verbose=False,
         )
-        print("[GFPGANTorch] Demod extension compiled and ready.")
+        logger.info("[GFPGANTorch] Demod extension compiled and ready.")
     except Exception as e:
-        print(f"[GFPGANTorch] Compile failed: {e}  ->  using pure-PyTorch fallback.")
+        logger.warning("[GFPGANTorch] Compile failed: %s — using pure-PyTorch fallback.", e)
         _ext_obj = None
 
 
@@ -212,9 +209,7 @@ def _get_demod_fn():
     return None if _ext_obj is None else _ext_obj.fused_demod
 
 
-def _fused_demod(
-    w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8
-) -> torch.Tensor:
+def _fused_demod(w: torch.Tensor, style: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
     w     : [C_out, C_in, kH, kW]  FP16 or FP32  CUDA
     style : [C_in]                  FP32  CUDA
@@ -222,9 +217,7 @@ def _fused_demod(
     """
     # Priority 1: Triton (Windows-friendly, no MSVC needed)
     if _TRITON_AVAILABLE and _triton_demod is not None:
-        return _triton_demod(
-            w.to(torch.float16).contiguous(), style.contiguous().float(), eps
-        )
+        return _triton_demod(w.to(torch.float16).contiguous(), style.contiguous().float(), eps)
     # Priority 2: CUDA C++ extension
     fn = _get_demod_fn()
     if fn is not None:
@@ -261,9 +254,12 @@ def _load_onnx(path: str) -> dict:
                 ks = list(attr.ints)
         if ks != [1, 1]:
             continue
-        if len(node.input) >= 3 and node.input[2] in init_shapes:
-            if init_shapes[node.input[2]] == (3,):
-                torgb_bias_keys.append(node.input[2])
+        if (
+            len(node.input) >= 3
+            and node.input[2] in init_shapes
+            and init_shapes[node.input[2]] == (3,)
+        ):
+            torgb_bias_keys.append(node.input[2])
 
     if torgb_bias_keys:
         w["_torgb_bias_rgb1"] = w[torgb_bias_keys[0]]
@@ -305,9 +301,7 @@ class GFPGANTorch(torch.nn.Module):
         self.compute_dtype = compute_dtype  # float16 (fast) or float32 (reference)
 
     @classmethod
-    def from_onnx(
-        cls, onnx_path: str, compute_dtype: torch.dtype = torch.float16
-    ) -> "GFPGANTorch":
+    def from_onnx(cls, onnx_path: str, compute_dtype: torch.dtype = torch.float16) -> GFPGANTorch:
         w = _load_onnx(onnx_path)
         out_size = 1024 if "final_extend_linear.weight" in w else 512
         model = cls(out_size, compute_dtype=compute_dtype)
@@ -337,12 +331,7 @@ class GFPGANTorch(torch.nn.Module):
         def h16_rgb_bias(alias_key):
             """Load a to_rgb bias from the aliased key (shape [3] -> [1,3,1,1])."""
             if alias_key in w:
-                return (
-                    torch.from_numpy(w[alias_key])
-                    .to(cdtype)
-                    .view(1, 3, 1, 1)
-                    .contiguous()
-                )
+                return torch.from_numpy(w[alias_key]).to(cdtype).view(1, 3, 1, 1).contiguous()
             return torch.zeros(1, 3, 1, 1, dtype=cdtype)
 
         # ── U-Net encoder ─────────────────────────────────────────────────
@@ -515,9 +504,7 @@ class GFPGANTorch(torch.nn.Module):
             F.conv2d(x, g[f"{pfx}_conv1_weight"], g[f"{pfx}_conv1_bias"], padding=1),
             0.2,
         )
-        out = F.interpolate(
-            out, scale_factor=scale, mode="bilinear", align_corners=False
-        )
+        out = F.interpolate(out, scale_factor=scale, mode="bilinear", align_corners=False)
         out = F.leaky_relu(
             F.conv2d(out, g[f"{pfx}_conv2_weight"], g[f"{pfx}_conv2_bias"], padding=1),
             0.2,
@@ -537,9 +524,7 @@ class GFPGANTorch(torch.nn.Module):
             ),
             0.2,
         )
-        return F.conv2d(
-            out, g[f"{short}_{idx}_2_weight"], g[f"{short}_{idx}_2_bias"], padding=1
-        )
+        return F.conv2d(out, g[f"{short}_{idx}_2_weight"], g[f"{short}_{idx}_2_bias"], padding=1)
 
     def _style_conv(
         self,
@@ -579,11 +564,7 @@ class GFPGANTorch(torch.nn.Module):
             if n_buf is not None:
                 noise = n_buf
 
-        if (
-            _TRITON_AVAILABLE
-            and _triton_gfpgan_act is not None
-            and out.dtype == torch.float16
-        ):
+        if _TRITON_AVAILABLE and _triton_gfpgan_act is not None and out.dtype == torch.float16:
             # Triton kernel now handles broadcasting of noise/bias internally
             out = _triton_gfpgan_act(out, noise, bias, 0.2, 2.0**0.5)
         else:
@@ -595,9 +576,7 @@ class GFPGANTorch(torch.nn.Module):
 
         if sft_scale is not None:
             half = C_out // 2
-            out = torch.cat(
-                [out[:, :half], out[:, half:] * sft_scale + sft_shift], dim=1
-            )
+            out = torch.cat([out[:, :half], out[:, half:] * sft_scale + sft_shift], dim=1)
         return out
 
     def _torgb_conv(
@@ -621,16 +600,12 @@ class GFPGANTorch(torch.nn.Module):
         C_in = weight.shape[2]
 
         style = F.linear(latent, mod_w, mod_b)  # [1, C_in] FP32
-        w_comp = (weight[0].float() * style[0].view(1, C_in, 1, 1)).to(
-            self.compute_dtype
-        )
+        w_comp = (weight[0].float() * style[0].view(1, C_in, 1, 1)).to(self.compute_dtype)
 
         rgb = F.conv2d(x, w_comp) + bias  # [1, 3, H, W]
 
         if skip is not None:
-            skip = F.interpolate(
-                skip, scale_factor=2, mode="bilinear", align_corners=False
-            )
+            skip = F.interpolate(skip, scale_factor=2, mode="bilinear", align_corners=False)
             rgb = rgb + skip
 
         return rgb
@@ -660,9 +635,7 @@ class GFPGANTorch(torch.nn.Module):
         feat_flat = feat.float().view(1, -1)
         style_code = F.linear(feat_flat, g["fl_w"], g["fl_b"])
         if self.is_1024:
-            style_code = torch.cat(
-                [style_code, F.linear(feat_flat, g["fel_w"], g["fel_b"])], dim=1
-            )
+            style_code = torch.cat([style_code, F.linear(feat_flat, g["fel_w"], g["fel_b"])], dim=1)
         latent = style_code.view(1, self.num_latents, 512)  # [1, L, 512]
 
         # ── U-Net Decoder + SFT conditions ────────────────────────────────
@@ -706,13 +679,9 @@ class GFPGANTorch(torch.nn.Module):
                 sft_shift=sft_shifts[li],
             )
 
-            sg = self._style_conv(
-                sg, f"sc{ci + 1}", latent[:, sg_li + 1], noise_idx=ci + 2
-            )
+            sg = self._style_conv(sg, f"sc{ci + 1}", latent[:, sg_li + 1], noise_idx=ci + 2)
 
-            skip_rgb = self._torgb_conv(
-                sg, f"rgbs{li}", latent[:, sg_li + 2], skip=skip_rgb
-            )
+            skip_rgb = self._torgb_conv(sg, f"rgbs{li}", latent[:, sg_li + 2], skip=skip_rgb)
             sg_li += 2
 
         # 1024 final stage (1024×1024)
@@ -729,9 +698,7 @@ class GFPGANTorch(torch.nn.Module):
 
             sg = self._style_conv(sg, "final_conv2", latent[:, sg_li + 1], noise_idx=16)
 
-            skip_rgb = self._torgb_conv(
-                sg, "final_rgb", latent[:, sg_li + 2], skip=skip_rgb
-            )
+            skip_rgb = self._torgb_conv(sg, "final_rgb", latent[:, sg_li + 2], skip=skip_rgb)
 
         return skip_rgb.float()
 
@@ -778,9 +745,7 @@ def build_cuda_graph_runner(model: GFPGANTorch, inp_shape: tuple = (1, 3, 512, 5
     graph = torch.cuda.CUDAGraph()
     with (
         torch.no_grad(),
-        torch.cuda.graph(
-            graph, stream=capture_stream, capture_error_mode="relaxed"
-        ),
+        torch.cuda.graph(graph, stream=capture_stream, capture_error_mode="relaxed"),
     ):
         static_out = model(static_inp)
     torch.cuda.synchronize(dev)

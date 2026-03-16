@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -9,6 +10,8 @@ from PyQt6.QtWidgets import QApplication
 
 from app.core.params import ColmapParams
 from app.core.system import resolve_project_root
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
@@ -59,7 +62,7 @@ class SessionManager:
             with open(self.get_session_file(), "w") as f:
                 json.dump(state, f, indent=2)
         except Exception as e:
-            print(f"Erreur sauvegarde session: {e}")
+            logger.error("Failed to save session: %s", e)
 
     def load(self):
         session_file = self.get_session_file()
@@ -91,7 +94,7 @@ class SessionManager:
                         else:
                             tab.set_params(state[key])
         except Exception as e:
-            print(f"Erreur chargement session: {e}")
+            logger.error("Failed to load session: %s", e)
 
 
 class AppLifecycle:
@@ -103,7 +106,7 @@ class AppLifecycle:
             try:
                 save_callback()
             except Exception as e:
-                print(f"Error saving session before restart: {e}")
+                logger.error("Error saving session before restart: %s", e)
 
         root_dir = resolve_project_root()
         python = sys.executable
@@ -113,7 +116,7 @@ class AppLifecycle:
         needs_setup = not (engines_dir / "brush").exists()
 
         if needs_setup:
-            print("Reinstall detected: running setup before relaunch...")
+            logger.info("Reinstall detected: running setup before relaunch...")
             extra_argv = [a for a in sys.argv[1:] if a not in ("--gui",)]
             main_args = " ".join(f'"{a}"' for a in extra_argv)
             if sys.platform == "win32":
@@ -135,13 +138,13 @@ class AppLifecycle:
 
         # Normal relaunch
         args = [python, str(main_py)] + sys.argv[1:]
-        print(f"Relaunching: {args}")
+        logger.info("Relaunching: %s", args)
 
         if sys.platform != "win32":
             try:
                 os.execv(python, args)
             except Exception as e:
-                print(f"execv failed: {e}. Falling back to Popen.")
+                logger.warning("execv failed: %s — falling back to Popen.", e)
             subprocess.Popen(args, cwd=str(root_dir), start_new_session=True)
         else:
             subprocess.Popen(args, cwd=str(root_dir))
@@ -169,7 +172,7 @@ class AppLifecycle:
             for p in root_dir.glob("config.sync-conflict-*"):
                 to_delete.append(p)
 
-        print(f"Reset Factory {'DEEP' if deep else 'LIGHT'} on: {root_dir}")
+        logger.info("Reset Factory %s on: %s", "DEEP" if deep else "LIGHT", root_dir)
 
         if sys.platform == "win32":
             # Build a cmd.exe command: wait 2 s, delete dirs, relaunch via python
