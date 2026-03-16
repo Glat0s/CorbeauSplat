@@ -13,8 +13,6 @@
 | ESRGAN (weights missing) | - | - | download first |
 | **GFPGAN (512x512 face)** | | | |
 | GFPGAN (weights missing) | - | - | auto-downloads on use |
-| **XSeg (512x512 segmentation mask)** | | | |
-| XSeg (weights missing) | - | - | skipped |
 | **Micro: LayerNorm (4096 tokens)** | | | |
 | LayerNorm-768 PyTorch | 0.04 | 0.01 |  |
 | LayerNorm-768 Triton | 0.13 | 0.01 |  |

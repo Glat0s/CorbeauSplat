@@ -14,7 +14,7 @@ A unified GUI that orchestrates:
 4. **Visualisation** — built-in **SuperSplat** viewer tab.
 5. **Image Upscaling** — **Real-ESRGAN** super-resolution before COLMAP for sharper features. Multiple inference backends: PyTorch FP16, ORT CUDA, ORT TensorRT.
 6. **Face Restoration** — **GFPGAN v1.4** face enhancement with custom Triton kernels and CUDA graph capture.
-7. **VR 180 Green-Screen Pipeline** — extract one eye from SBS/TB VR video, GPU chroma-key removal (PyTorch+kornia), SAM or XSeg person segmentation, output ready-for-COLMAP RGBA frames.
+7. **VR 180 Green-Screen Pipeline** — extract one eye from SBS/TB VR video, GPU chroma-key removal (PyTorch+kornia), SAM person segmentation, output ready-for-COLMAP RGBA frames.
 8. **360° Extractor** — equirectangular → cube map / ring / Fibonacci layouts with AI operator masking.
 9. **4DGS Preparation** — multi-camera video → Nerfstudio format.
 10. **Apple ML Sharp** — single image → 3D mesh (macOS only).
@@ -36,7 +36,6 @@ Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russia
 | SAM LayerNorm | Custom Triton single-pass online variance | **1.45–1.53×** per LayerNorm |
 | SAM Window Ops | Custom Triton fused gather/scatter partition | **1.52×** per block |
 | SAM (end-to-end) | All Triton kernels combined | **1.22×** vs compile+CUDA graph |
-| XSeg Segmentation | Triton RMSNormMax + CUDA graph | ~6× vs SAM |
 | GFPGAN Face Restoration | Triton demod+act + CUDA graph | ~1.9× |
 | Real-ESRGAN Dense Blocks | MemEfficientDenseBlock (pre-alloc concat buffer) | **1.32×** per RRDB block |
 | Real-ESRGAN Scale+Add | Fused Triton scale+residual kernel | **1.62×** per skip connection |
@@ -63,7 +62,6 @@ Run `python benchmarks/benchmark_inference.py` to reproduce.
 | | CUDA Graph (encoder) | 48.53 | ~1.0× ¹ |
 | | +Triton (LN/Window ops) | 48.67 | ~1.0× ¹ |
 | **GFPGAN v1.4** | — | — | auto-downloads on first use |
-| **XSeg Segmentation** | — | — | weights not downloaded |
 
 ¹ CUDA graph captures only the ViT encoder; total latency is decoder-bound (~48 ms).
 Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-end time at this batch size.
@@ -125,8 +123,7 @@ winget install UB-Mannheim.COLMAP
 1. Select **VR format**: Side-by-Side (SBS) or Top-Bottom (TB).
 2. Select **Eye**: Left or Right.
 3. Tune **Chroma Key** parameters (hue centre, tolerance, saturation/value thresholds).
-4. Enable **XSeg** (fastest, ~2ms/frame) or **SAM** (highest quality) for person segmentation.
-   - XSeg: provide `XSeg_model.pth` checkpoint.
+4. Optionally enable **SAM** for person segmentation refinement.
    - SAM: download `vit_b / vit_l / vit_h` checkpoint via the Download button.
 5. Set **GPU batch size** (default 8; increase for faster processing on high-VRAM cards).
 
@@ -168,7 +165,7 @@ python benchmarks/benchmark_inference.py --runs 20 --warmup 3 --device cuda
 - **Real-ESRGAN** — AI image super-resolution. [GitHub](https://github.com/xinntao/Real-ESRGAN)
 - **GFPGAN** — Practical face restoration. [GitHub](https://github.com/TencentARC/GFPGAN)
 - **Segment Anything (SAM)** — Meta AI universal segmentation. [GitHub](https://github.com/facebookresearch/segment-anything)
-- **Custom kernels** — Custom Triton/CUDA kernels for GFPGAN and XSeg inference. Kernel implementations vendored under `app/core/vendor/`.
+- **Custom kernels** — Custom Triton/CUDA kernels for GFPGAN inference. Kernel implementations vendored under `app/core/vendor/`.
 - **360Extractor** — 360° video extraction. [GitHub](https://github.com/nicolasdiolez/360Extractor)
 - **Nerfstudio** — NeRF and Splatting framework (4DGS prep). [GitHub](https://github.com/nerfstudio-project/nerfstudio)
 - **kornia** — GPU image processing library. [GitHub](https://github.com/kornia/kornia)

@@ -178,24 +178,6 @@ def bench_gfpgan(runs: int, warmup: int, device: str) -> list[dict]:
     return results
 
 
-def bench_xseg(runs: int, warmup: int, device: str) -> list[dict]:
-    results = []
-    dummy = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8)
-    ckpt  = ROOT / "app" / "weights" / "XSeg_model.pth"
-    try:
-        from app.core.xseg_engine import XSegEngine
-        if not ckpt.exists():
-            results.append({"name": "XSeg (weights missing)", "mean_ms": -1, "std_ms": 0})
-            return results
-        xseg = XSegEngine(checkpoint=ckpt, device=device, use_fp16=True, use_cuda_graph=True)
-        if xseg.load():
-            mean, std = timeit(lambda: xseg.predict_frame(dummy), runs, warmup)
-            results.append({"name": "XSeg FP16+CUDA graph", "mean_ms": mean, "std_ms": std})
-            xseg.unload()
-    except Exception as e:
-        results.append({"name": "XSeg", "mean_ms": -1, "std_ms": 0, "notes": str(e)})
-    return results
-
 
 # -- Micro-benchmarks (no model weights needed) --------------------------------
 
@@ -376,7 +358,6 @@ def main():
         "Chroma Key (1920x1080)":               _run(lambda: bench_chroma_key(args.runs, args.warmup, args.device)),
         "RealESRGAN (256x256 -> 1024x1024)":    _run(lambda: bench_esrgan(args.runs, args.warmup, args.device)),
         "GFPGAN (512x512 face)":                _run(lambda: bench_gfpgan(args.runs, args.warmup, args.device)),
-        "XSeg (512x512 segmentation mask)":     _run(lambda: bench_xseg(args.runs, args.warmup, args.device)),
         "Micro: LayerNorm (4096 tokens)":       _run(lambda: bench_triton_layernorm(args.runs, args.warmup, args.device)),
         "Micro: Window ops (56x56, ws=14)":     _run(lambda: bench_triton_window_ops(args.runs, args.warmup, args.device)),
         "Micro: ESRGAN ops":                    _run(lambda: bench_triton_esrgan_ops(args.runs, args.warmup, args.device)),
