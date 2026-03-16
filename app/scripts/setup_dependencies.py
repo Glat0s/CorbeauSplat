@@ -817,7 +817,7 @@ class UpscaleEngineDep(PipEngine):
         if sys.platform == "win32":
             self.pip_install([
                 "torch", "torchvision",
-                "--index-url", "https://download.pytorch.org/whl/cu121"
+                "--index-url", "https://download.pytorch.org/whl/cu129"
             ])
         else:
             self.pip_install(["torch", "torchvision"])
@@ -839,7 +839,7 @@ class VR180EngineDep(PipEngine):
         if sys.platform == "win32":
             self.pip_install([
                 "torch", "torchvision",
-                "--index-url", "https://download.pytorch.org/whl/cu121"
+                "--index-url", "https://download.pytorch.org/whl/cu129"
             ])
             # triton-windows enables torch.compile on Windows
             self.pip_install(["triton-windows"])
