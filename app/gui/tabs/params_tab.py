@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.i18n import add_language_observer, tr
 from app.core.params import ColmapParams
-from app.core.system import get_optimal_threads, is_apple_silicon
+from app.core.system import get_optimal_threads
 
 
 class ParamsTab(QWidget):
@@ -27,11 +27,7 @@ class ParamsTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        if is_apple_silicon():
-            self.info_label = QLabel(tr("info_cpu", get_optimal_threads()))
-            layout.addWidget(self.info_label)
-        else:
-            self.info_label = None
+        self.info_label = None
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

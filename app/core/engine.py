@@ -8,7 +8,7 @@ import send2trash
 
 from .base_engine import BaseEngine
 from .i18n import tr
-from .system import get_optimal_threads, is_apple_silicon, is_windows, resolve_binary
+from .system import get_optimal_threads, is_windows, resolve_binary
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -36,7 +36,6 @@ class ColmapEngine(BaseEngine):
         self.input_type = input_type
         self.fps = fps
         self.project_name = project_name
-        self.is_silicon = is_apple_silicon()
         self.num_threads = get_optimal_threads()
         self._current_process = None
         self.progress = progress_callback if progress_callback else lambda x: None
@@ -48,18 +47,7 @@ class ColmapEngine(BaseEngine):
         self.colmap_bin = resolve_binary("colmap") or "colmap"
         self.glomap_bin = resolve_binary("glomap") or "glomap"
 
-        # Pre-load cv2 on the main thread to avoid Bus Error (SIGBUS)
-        # caused by numpy's Apple Accelerate framework initializing in a sub-thread
-        try:
-            import cv2  # noqa: F401
-
-            self._cv2_loaded = True
-        except ImportError:
-            self._cv2_loaded = False
-
-        if self.is_silicon:
-            self.log(f"Apple Silicon detected — {self.num_threads} threads optimized")
-        elif is_windows():
+        if is_windows():
             self.log(f"Windows detected — {self.num_threads} threads available")
         self.log(f"Binaries: {self.colmap_bin}, {self.ffmpeg_bin}, {self.glomap_bin}")
 

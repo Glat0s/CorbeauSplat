@@ -28,8 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.i18n import add_language_observer, tr
-from app.gui.widgets.dialog_utils import get_open_file_name
-from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.core.system import resolve_project_root
 
 
 class SAMDownloadWorker(QThread):
@@ -245,24 +244,16 @@ class VR180Tab(QWidget):
         self.combo_sam_model.addItem("ViT-B (fastest, ~375 MB)", "vit_b")
         self.combo_sam_model.addItem("ViT-L (balanced, ~1.2 GB)", "vit_l")
         self.combo_sam_model.addItem("ViT-H (best quality, ~2.6 GB)", "vit_h")
+        self.combo_sam_model.currentIndexChanged.connect(self._update_sam_status)
         row.addWidget(self.combo_sam_model)
         row.addStretch()
         sam_layout.addLayout(row)
 
-        # Checkpoint path
-        row = QHBoxLayout()
-        self.lbl_ckpt = QLabel(tr("vr180_lbl_ckpt", "Checkpoint (.pth):"))
-        row.addWidget(self.lbl_ckpt)
-        self.edit_ckpt = DropLineEdit()
-        self.edit_ckpt.setPlaceholderText(tr("vr180_ph_ckpt", "Path to SAM checkpoint file"))
-        row.addWidget(self.edit_ckpt)
-        self.btn_browse_ckpt = QPushButton(tr("btn_browse", "Browse"))
-        self.btn_browse_ckpt.clicked.connect(self._browse_checkpoint)
-        row.addWidget(self.btn_browse_ckpt)
-        sam_layout.addLayout(row)
-
-        # Download button + progress
+        # Checkpoint status + download
         dl_row = QHBoxLayout()
+        self.lbl_sam_status = QLabel("❌ Not downloaded")
+        self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold;")
+        dl_row.addWidget(self.lbl_sam_status)
         self.btn_download_sam = QPushButton(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
         self.btn_download_sam.clicked.connect(self._download_sam)
         dl_row.addWidget(self.btn_download_sam)
@@ -291,14 +282,13 @@ class VR180Tab(QWidget):
         self._sam_widgets = [
             self.lbl_sam_model,
             self.combo_sam_model,
-            self.lbl_ckpt,
-            self.edit_ckpt,
-            self.btn_browse_ckpt,
+            self.lbl_sam_status,
             self.btn_download_sam,
             self.lbl_device,
             self.combo_device,
         ]
         self._update_sam_group(False)
+        self._update_sam_status()
 
     # ------------------------------------------------------------------
     # Slots
@@ -308,30 +298,22 @@ class VR180Tab(QWidget):
         for w in self._sam_widgets:
             w.setEnabled(enabled)
 
-    def _browse_checkpoint(self):
-        path, _ = get_open_file_name(
-            self,
-            tr("vr180_lbl_ckpt", "SAM Checkpoint"),
-            "",
-            "PyTorch checkpoint (*.pth);;All files (*.*)",
-        )
-        if path:
-            self.edit_ckpt.setText(path)
+    def _update_sam_status(self):
+        """Refreshes the checkpoint status label for the selected model."""
+        model_type = self.combo_sam_model.currentData()
+        dest = resolve_project_root() / "engines" / f"sam_{model_type}.pth"
+        if dest.exists():
+            self.lbl_sam_status.setText("✅ Checkpoint ready")
+            self.lbl_sam_status.setStyleSheet("color: #44cc44; font-weight: bold;")
+            self.btn_download_sam.setText(tr("vr180_btn_redownload_sam", "Re-download"))
+        else:
+            self.lbl_sam_status.setText("❌ Not downloaded")
+            self.lbl_sam_status.setStyleSheet("color: #cc4444; font-weight: bold;")
+            self.btn_download_sam.setText(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
 
     def _download_sam(self):
         model_type = self.combo_sam_model.currentData()
-
-        from app.core.system import resolve_project_root
-
         dest = resolve_project_root() / "engines" / f"sam_{model_type}.pth"
-        if dest.exists():
-            QMessageBox.information(
-                self,
-                tr("msg_success", "OK"),
-                tr("vr180_ckpt_exists", f"Checkpoint already downloaded:\n{dest}"),
-            )
-            self.edit_ckpt.setText(str(dest))
-            return
 
         self.btn_download_sam.setEnabled(False)
         self.sam_progress.setVisible(True)
@@ -345,8 +327,8 @@ class VR180Tab(QWidget):
     def _on_download_finished(self, success: bool, message: str):
         self.btn_download_sam.setEnabled(True)
         self.sam_progress.setVisible(False)
+        self._update_sam_status()
         if success:
-            self.edit_ckpt.setText(message)
             QMessageBox.information(
                 self,
                 tr("msg_success", "OK"),
@@ -364,6 +346,8 @@ class VR180Tab(QWidget):
     # ------------------------------------------------------------------
 
     def get_params(self) -> dict:
+        model_type = self.combo_sam_model.currentData()
+        checkpoint = str(resolve_project_root() / "engines" / f"sam_{model_type}.pth")
         return {
             "vr_format": "sbs" if self.radio_sbs.isChecked() else "tb",
             "eye": "left" if self.radio_left.isChecked() else "right",
@@ -372,8 +356,8 @@ class VR180Tab(QWidget):
             "sat_min": self.spin_sat.value(),
             "val_min": self.spin_val.value(),
             "use_sam": self.check_use_sam.isChecked(),
-            "sam_model_type": self.combo_sam_model.currentData(),
-            "sam_checkpoint": self.edit_ckpt.text().strip(),
+            "sam_model_type": model_type,
+            "sam_checkpoint": checkpoint,
             "device": self.combo_device.currentData(),
             "batch_size": self.spin_batch.value(),
         }
@@ -403,8 +387,6 @@ class VR180Tab(QWidget):
             idx = self.combo_sam_model.findData(params["sam_model_type"])
             if idx >= 0:
                 self.combo_sam_model.setCurrentIndex(idx)
-        if "sam_checkpoint" in params:
-            self.edit_ckpt.setText(params["sam_checkpoint"])
         if "device" in params:
             idx = self.combo_device.findData(params["device"])
             if idx >= 0:
@@ -444,8 +426,7 @@ class VR180Tab(QWidget):
             tr("vr180_check_sam", "Enable SAM (Segment Anything) refinement")
         )
         self.lbl_sam_model.setText(tr("vr180_lbl_sam_model", "SAM model:"))
-        self.lbl_ckpt.setText(tr("vr180_lbl_ckpt", "Checkpoint (.pth):"))
-        self.btn_browse_ckpt.setText(tr("btn_browse", "Browse"))
         self.btn_download_sam.setText(tr("vr180_btn_download_sam", "Download SAM checkpoint"))
+        self._update_sam_status()
         self.lbl_device.setText(tr("vr180_lbl_device", "Compute device:"))
         self.lbl_batch.setText(tr("vr180_lbl_batch", "GPU batch size:"))

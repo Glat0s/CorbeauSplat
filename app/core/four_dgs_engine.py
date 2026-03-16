@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 
 from .base_engine import BaseEngine
-from .system import get_optimal_threads, is_apple_silicon, resolve_binary
+from .system import get_optimal_threads, resolve_binary
 
 
 class FourDGSEngine(BaseEngine):
@@ -31,9 +31,6 @@ class FourDGSEngine(BaseEngine):
         out_p.mkdir(parents=True, exist_ok=True)
 
         cmd = [self.ffmpeg]
-        if is_apple_silicon():
-            cmd.extend(["-hwaccel", "videotoolbox"])
-
         cmd.extend(
             [
                 "-i",

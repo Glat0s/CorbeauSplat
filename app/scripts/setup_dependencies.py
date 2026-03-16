@@ -507,13 +507,12 @@ class SharpEngineDep(PipEngine):
 
     def install(self):
         self.update_git()
-        # Sharp needs 3.11/3.10 ideally
-        py311 = shutil.which("python3.11") or shutil.which("python3.10")
-        if not py311:
-            print("Python 3.11/3.10 missing for Sharp.")
+        py_cmd = self._find_python_310_311()
+        if not py_cmd:
+            print("Python 3.10–3.12 not found for Sharp. Install Python 3.11 and retry.")
             return
 
-        self.create_venv(py311)
+        self.create_venv(py_cmd)
         req_file = self.target_dir / "requirements.txt"
         if req_file.exists():
             loose = self.target_dir / "requirements_loose.txt"
@@ -524,6 +523,39 @@ class SharpEngineDep(PipEngine):
             self.pip_install(["-e", "."], cwd=str(self.target_dir))
 
         self.save_local_version(self.get_remote_version())
+
+    def _find_python_310_311(self):
+        """Finds Python 3.10, 3.11, or 3.12 on the current system."""
+        if sys.platform == "win32":
+            # Windows Python Launcher (py.exe) supports version selection
+            for ver in ["3.11", "3.10", "3.12"]:
+                try:
+                    result = subprocess.run(
+                        ["py", f"-{ver}", "-c", "import sys; print(sys.executable)"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        return result.stdout.strip()
+                except Exception:
+                    pass
+        # Unix / fallback: look for versioned python commands
+        for cmd in ["python3.11", "python3.10", "python3.12", "python3", "python"]:
+            p = shutil.which(cmd)
+            if p:
+                try:
+                    ver_out = subprocess.check_output(
+                        [p, "--version"], text=True, stderr=subprocess.STDOUT
+                    ).strip()
+                    parts = ver_out.split()
+                    if len(parts) >= 2:
+                        major, minor = parts[1].split(".")[:2]
+                        if int(major) == 3 and int(minor) in (10, 11, 12):
+                            return p
+                except Exception:
+                    pass
+        return None
 
 
 def load_config():
@@ -547,17 +579,24 @@ def relax_requirements(src, dst):
 
 
 def install_system_dependencies(check_only=False):
-    if sys.platform == "win32":
-        return _install_system_dependencies_windows(check_only)
-    return _install_system_dependencies_macos(check_only)
+    return _install_system_dependencies_windows(check_only)
 
 
 def _install_system_dependencies_windows(check_only=False):
     print("--- System Dependency Check (Windows) ---")
+    engines_dir = resolve_project_root() / "engines"
+    engines_dir.mkdir(parents=True, exist_ok=True)
+
+    colmap_missing = _find_colmap_in_engines(engines_dir) is None and (
+        shutil.which("colmap") is None and shutil.which("colmap.exe") is None
+    )
+    ffmpeg_missing = shutil.which("ffmpeg") is None and shutil.which("ffmpeg.exe") is None
+
     missing = []
-    for cmd in ["colmap", "ffmpeg"]:
-        if shutil.which(cmd) is None and shutil.which(cmd + ".exe") is None:
-            missing.append(cmd)
+    if colmap_missing:
+        missing.append("colmap")
+    if ffmpeg_missing:
+        missing.append("ffmpeg")
 
     if not missing:
         print("✅ System dependencies present.")
@@ -568,133 +607,155 @@ def _install_system_dependencies_windows(check_only=False):
         print("ℹ️ Audit mode: automatic installation skipped.")
         return False
 
-    # Try winget first (available on Windows 10/11)
-    has_winget = shutil.which("winget") is not None
-    # Try chocolatey as fallback
-    has_choco = shutil.which("choco") is not None
+    if "colmap" in missing and not _download_colmap_windows(engines_dir):
+        print("   Download COLMAP manually: https://github.com/colmap/colmap/releases")
 
-    if not has_winget and not has_choco:
-        print("ℹ️  No package manager found (winget/choco).")
-        print("   Please install COLMAP and FFmpeg manually:")
-        print("   COLMAP: https://github.com/colmap/colmap/releases")
-        print("   FFmpeg: https://www.gyan.dev/ffmpeg/builds/ (add to PATH)")
-        return False
-
-    try:
-        if has_winget:
-            if "colmap" in missing:
-                subprocess.check_call(
-                    ["winget", "install", "--id", "UB-Mannheim.COLMAP", "-e", "--silent"]
-                )
-            if "ffmpeg" in missing:
+    if "ffmpeg" in missing:
+        installed = False
+        if shutil.which("winget"):
+            try:
                 subprocess.check_call(
                     ["winget", "install", "--id", "Gyan.FFmpeg", "-e", "--silent"]
                 )
-        elif has_choco:
-            if "colmap" in missing:
-                subprocess.check_call(["choco", "install", "colmap", "-y"])
-            if "ffmpeg" in missing:
+                installed = True
+            except Exception:
+                pass
+        if not installed and shutil.which("choco"):
+            try:
                 subprocess.check_call(["choco", "install", "ffmpeg", "-y"])
-        return True
-    except Exception as e:
-        print(f"Automatic installation failed: {e}")
-        print("Please install manually: COLMAP and FFmpeg, then add them to PATH.")
-        return False
+                installed = True
+            except Exception:
+                pass
+        if not installed:
+            print("   Download FFmpeg manually: https://www.gyan.dev/ffmpeg/builds/ (add to PATH)")
+
+    return True
 
 
-def _install_system_dependencies_macos(check_only=False):
-    print("--- System Dependency Check (Homebrew) ---")
-    missing = []
-    for cmd in ["colmap", "ffmpeg"]:
-        if shutil.which(cmd) is None:
-            missing.append(cmd)
+def _find_colmap_in_engines(engines_dir: Path):
+    """Finds colmap.exe inside engines/colmap/ directory tree."""
+    colmap_dir = engines_dir / "colmap"
+    if not colmap_dir.exists():
+        return None
+    for root_dir, _dirs, files in os.walk(str(colmap_dir)):
+        for f in files:
+            if f.lower() == "colmap.exe":
+                return str(Path(root_dir) / f)
+    return None
 
-    if sys.platform == "darwin":
-        try:
-            if (
-                subprocess.run(
-                    ["brew", "list", "libomp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                ).returncode
-                != 0
-            ):
-                missing.append("libomp")
-            if (
-                subprocess.run(
-                    ["brew", "list", "freeimage"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                ).returncode
-                != 0
-            ):
-                missing.append("freeimage")
-        except Exception:
-            pass
 
-    if not missing:
-        print("✅ System dependencies present.")
-        return True
+def _download_colmap_windows(engines_dir: Path) -> bool:
+    """Downloads the latest COLMAP pre-built Windows binary from GitHub releases."""
+    import json as _json
+    import urllib.request
+    import zipfile
 
-    print(f"Missing: {', '.join(missing)}")
-    if check_only:
-        print("ℹ️ Audit mode: automatic installation skipped.")
-        return False
-
-    if shutil.which("brew") is None:
-        print("ERROR: Homebrew required.")
-        return False
-
-    print("Installing via Homebrew...")
+    print("Fetching latest COLMAP release from GitHub...")
     try:
-        if "colmap" in missing:
-            subprocess.check_call(["brew", "install", "colmap"])
-        if "ffmpeg" in missing:
-            subprocess.check_call(["brew", "install", "ffmpeg"])
-        if "libomp" in missing:
-            subprocess.check_call(["brew", "install", "libomp"])
-        if "freeimage" in missing:
-            subprocess.check_call(["brew", "install", "freeimage"])
-        return True
-    except Exception:
-        print("System installation failed.")
+        req = urllib.request.Request(
+            "https://api.github.com/repos/colmap/colmap/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "CorbeauSplat"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = _json.loads(resp.read())
+    except Exception as e:
+        print(f"⚠️ Could not fetch COLMAP release info: {e}")
         return False
+
+    # Prefer CUDA build, fall back to no-cuda
+    asset_url = None
+    asset_name = None
+    cuda_asset = no_cuda_asset = None
+    for asset in data.get("assets", []):
+        name = asset.get("name", "")
+        if "windows" in name.lower() and name.endswith(".zip"):
+            if "no-cuda" in name.lower():
+                no_cuda_asset = (asset["browser_download_url"], name)
+            elif "cuda" in name.lower():
+                cuda_asset = (asset["browser_download_url"], name)
+            elif no_cuda_asset is None and cuda_asset is None:
+                no_cuda_asset = (asset["browser_download_url"], name)
+
+    chosen = cuda_asset or no_cuda_asset
+    if not chosen:
+        print("⚠️ No Windows COLMAP binary found in latest release.")
+        return False
+
+    asset_url, asset_name = chosen
+    print(f"Downloading COLMAP: {asset_name} ...")
+    archive_path = engines_dir / asset_name
+    try:
+        urllib.request.urlretrieve(asset_url, str(archive_path))
+    except Exception as e:
+        print(f"⚠️ COLMAP download failed: {e}")
+        archive_path.unlink(missing_ok=True)
+        return False
+
+    print("Extracting COLMAP...")
+    colmap_dir = engines_dir / "colmap"
+    colmap_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            zf.extractall(colmap_dir)  # nosec B202
+    except Exception as e:
+        print(f"⚠️ COLMAP extraction failed: {e}")
+        archive_path.unlink(missing_ok=True)
+        return False
+    finally:
+        archive_path.unlink(missing_ok=True)
+
+    found = _find_colmap_in_engines(engines_dir)
+    if found:
+        print(f"✅ COLMAP installed: {found}")
+        return True
+    print("⚠️ Could not find colmap.exe after extraction.")
+    return False
 
 
 def install_node_js():
-    if sys.platform == "win32":
-        print("Installing Node.js via winget...")
-        try:
-            subprocess.check_call(
-                ["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"]
-            )
-            return True
-        except Exception:
-            print("Please install Node.js manually from https://nodejs.org/")
-            return False
-    print("Installing Node.js via Homebrew...")
+    print("Installing Node.js via winget...")
     try:
-        subprocess.check_call(["brew", "install", "node"])
+        subprocess.check_call(["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"])
+        # Refresh PATH so node/npm are found in the current process
+        node_dir = Path("C:/Program Files/nodejs")
+        if node_dir.exists():
+            os.environ["PATH"] = str(node_dir) + os.pathsep + os.environ.get("PATH", "")
         return True
     except Exception:
+        print("Please install Node.js manually from https://nodejs.org/")
         return False
 
 
-def install_build_tools():
+def _find_npm():
+    """Finds npm executable, searching common Windows install locations if not in PATH."""
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if npm:
+        return npm
     if sys.platform == "win32":
-        print("Installing CMake & Ninja via winget...")
-        try:
-            subprocess.check_call(["winget", "install", "--id", "Kitware.CMake", "-e", "--silent"])
-            subprocess.check_call(
-                ["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"]
-            )
-            return True
-        except Exception:
-            print("Please install CMake and Ninja manually.")
-            return False
-    print("Installing CMake & Ninja via Homebrew...")
+        # Search common Node.js install directories on Windows
+        candidate_dirs = [
+            Path("C:/Program Files/nodejs"),
+            Path("C:/Program Files (x86)/nodejs"),
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "nodejs",
+            Path(os.environ.get("APPDATA", "")) / "npm",
+        ]
+        for node_dir in candidate_dirs:
+            for name in ["npm.cmd", "npm"]:
+                p = node_dir / name
+                if p.exists():
+                    os.environ["PATH"] = str(node_dir) + os.pathsep + os.environ.get("PATH", "")
+                    return str(p)
+    return None
+
+
+def install_build_tools():
+    print("Installing CMake & Ninja via winget...")
     try:
-        subprocess.check_call(["brew", "install", "cmake", "ninja"])
+        subprocess.check_call(["winget", "install", "--id", "Kitware.CMake", "-e", "--silent"])
+        subprocess.check_call(["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"])
         return True
     except Exception:
+        print("Please install CMake and Ninja manually.")
         return False
 
 
@@ -776,10 +837,6 @@ def check_cargo():
     return shutil.which("cargo") is not None
 
 
-def check_brew():
-    return shutil.which("brew") is not None
-
-
 def check_node():
     return shutil.which("node") is not None and shutil.which("npm") is not None
 
@@ -788,45 +845,22 @@ def check_cmake_ninja():
     return shutil.which("cmake") is not None and shutil.which("ninja") is not None
 
 
-def check_xcode_tools():
-    """Checks if Xcode Command Line Tools are installed (macOS only)"""
-    if sys.platform != "darwin":
-        return True
-    try:
-        # xcode-select -p prints the path if installed, or exits with error
-        subprocess.check_call(
-            ["xcode-select", "-p"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        return True
-    except Exception:
-        return False
-
-
 # --- INSTALLERS HELPERS ---
 
 
 def install_rust_toolchain():
     print("Installing Rust (cargo)...")
     try:
-        if sys.platform == "win32":
-            # On Windows, download and run rustup-init.exe
-            import tempfile
-            import urllib.request
+        import tempfile
+        import urllib.request
 
-            rustup_url = "https://win.rustup.rs/x86_64"
-            with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
-                tmp_path = tmp.name
-            urllib.request.urlretrieve(rustup_url, tmp_path)
-            subprocess.check_call([tmp_path, "-y", "--default-toolchain", "stable"])
-            Path(tmp_path).unlink(missing_ok=True)
-        else:
-            # Install rustup non-interactively on Unix
-            subprocess.check_call(
-                "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-                shell=True,
-            )
+        rustup_url = "https://win.rustup.rs/x86_64"
+        with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
+            tmp_path = tmp.name
+        urllib.request.urlretrieve(rustup_url, tmp_path)
+        subprocess.check_call([tmp_path, "-y", "--default-toolchain", "stable"])
+        Path(tmp_path).unlink(missing_ok=True)
 
-        # Add cargo bin to current PATH for this session
         cargo_bin = Path.home() / ".cargo" / "bin"
         if cargo_bin.exists():
             os.environ["PATH"] = str(cargo_bin) + os.pathsep + os.environ["PATH"]
@@ -845,6 +879,11 @@ class SuperSplatEngineDep(EngineDependency):
         if not shutil.which("node") and not install_node_js():
             return
 
+        npm = _find_npm()
+        if not npm:
+            print("❌ npm not found. Install Node.js from https://nodejs.org/ and retry.")
+            return
+
         # Reset local changes before pull to avoid conflicts (package-lock.json)
         if self.target_dir.exists():
             with contextlib.suppress(Exception):
@@ -853,8 +892,8 @@ class SuperSplatEngineDep(EngineDependency):
                 )
 
         self.update_git()
-        subprocess.check_call(["npm", "install"], cwd=str(self.target_dir))
-        subprocess.check_call(["npm", "run", "build"], cwd=str(self.target_dir))
+        subprocess.check_call([npm, "install"], cwd=str(self.target_dir))
+        subprocess.check_call([npm, "run", "build"], cwd=str(self.target_dir))
         self.save_local_version(self.get_remote_version())
 
 
@@ -865,56 +904,11 @@ class GlomapEngineDep(EngineDependency):
         self.target_dir = self.engines_dir / "glomap-source"
 
     def install(self):
-        if sys.platform == "darwin" and not check_xcode_tools():
-            print("Xcode Command Line Tools required.")
-            return
-
-        if not check_cmake_ninja() and not install_build_tools():
-            return
-
-        self.update_git()
-        # Source dir is now handled by update_git via self.target_dir
-        source_dir = self.target_dir
-
-        build_dir = source_dir / "build"
-        # Fix CMakeCache error by cleaning build dir if it exists
-        if build_dir.exists():
-            shutil.rmtree(str(build_dir))
-        build_dir.mkdir(exist_ok=True)
-
-        cmake_args = ["cmake", "..", "-GNinja", "-DCMAKE_BUILD_TYPE=Release"]
-        env = os.environ.copy()
-
-        if sys.platform == "darwin":
-            try:
-                libomp = subprocess.check_output(["brew", "--prefix", "libomp"], text=True).strip()
-                include_p = f"{libomp}/include"
-                lib_p = f"{libomp}/lib"
-                cmake_args.extend(
-                    [
-                        f"-DOpenMP_ROOT={libomp}",
-                        "-DOpenMP_C_FLAGS=-Xpreprocessor -fopenmp",
-                        "-DOpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp",
-                    ]
-                )
-                env["LDFLAGS"] = f"-L{lib_p} -lomp"
-                env["CPPFLAGS"] = f"-I{include_p} -Xpreprocessor -fopenmp"
-            except Exception:
-                pass
-
-        subprocess.check_call(cmake_args, cwd=str(build_dir), env=env)
-        subprocess.check_call(["ninja"], cwd=str(build_dir), env=env)
-
-        # Binary name is glomap
-        built_bin = None
-        for p in [build_dir / "glomap" / "glomap", build_dir / "glomap"]:
-            if p.exists() and not p.is_dir():
-                built_bin = p
-                break
-
-        if built_bin:
-            shutil.copy2(str(built_bin), str(self.engines_dir / "glomap"))
-            self.save_local_version(self.get_remote_version())
+        # GLOMAP has no pre-built Windows binaries; source build requires MSVC.
+        # Skip on Windows — COLMAP's built-in exhaustive mapper is used as fallback.
+        print(
+            "ℹ️ GLOMAP: no pre-built Windows binary available. COLMAP exhaustive mapper will be used instead."
+        )
 
 
 class UpscaleEngineDep(PipEngine):
