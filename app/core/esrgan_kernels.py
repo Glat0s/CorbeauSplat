@@ -6,7 +6,7 @@ Usage
 -----
     from app.core.esrgan_kernels import inject_esrgan_kernels, validate_esrgan_kernels
 
-    model = RRDBNet(...)
+    # Assuming model is an RRDBNet-like architecture
     inject_esrgan_kernels(model)
 
 After injection the model uses:
@@ -15,10 +15,10 @@ After injection the model uses:
   - triton_scale_add         (fused x*0.2 + skip)
   - triton_pixel_shuffle_2x  (fused pixel-shuffle without staging tensor)
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,7 @@ logger = logging.getLogger("esrgan_kernels")
 _TRITON_AVAILABLE = False
 try:
     import triton  # noqa: F401
+
     _TRITON_AVAILABLE = True
 except ImportError:
     pass
@@ -36,6 +37,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def inject_esrgan_kernels(
     model: nn.Module,
@@ -59,8 +61,9 @@ def inject_esrgan_kernels(
         replaced += _replace_pixel_shuffle(model)
 
     logger.info(
-        "ESRGAN Triton kernel injection complete: %d replacement(s). "
-        "triton=%s", replaced, _TRITON_AVAILABLE
+        "ESRGAN Triton kernel injection complete: %d replacement(s). " "triton=%s",
+        replaced,
+        _TRITON_AVAILABLE,
     )
     return replaced
 
@@ -68,8 +71,6 @@ def inject_esrgan_kernels(
 def remove_esrgan_kernels(model: nn.Module) -> None:
     """
     Remove CorbeauSplat Triton kernel patches from model.
-    (Dense block replacement is permanent — call this before saving checkpoints
-    if you need the original basicsr format.)
     """
     from app.core.vendor.esrgan_triton_kernels import MemEfficientDenseBlock
 
@@ -77,8 +78,8 @@ def remove_esrgan_kernels(model: nn.Module) -> None:
         if isinstance(module, MemEfficientDenseBlock):
             logger.warning(
                 "MemEfficientDenseBlock at '%s' cannot be reverted automatically "
-                "(weights are preserved).  Save checkpoint before injection for "
-                "full compatibility.", name
+                "(weights are preserved).",
+                name,
             )
         if getattr(module, "_triton_rrdb_patched", False):
             module.forward = module._orig_forward
@@ -110,10 +111,12 @@ def validate_esrgan_kernels(
             inj_out = inj_model(dummy)
 
     max_diff = (ref_out.float() - inj_out.float()).abs().max().item()
-    passed   = max_diff < atol
+    passed = max_diff < atol
     logger.info(
         "ESRGAN kernel validation: max_diff=%.4f, atol=%.4f → %s",
-        max_diff, atol, "PASS" if passed else "FAIL"
+        max_diff,
+        atol,
+        "PASS" if passed else "FAIL",
     )
     return passed
 
@@ -122,61 +125,58 @@ def validate_esrgan_kernels(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _replace_dense_blocks(model: nn.Module) -> int:
-    """Replace basicsr ResidualDenseBlock instances with MemEfficientDenseBlock."""
+    """Replace ResidualDenseBlock instances with MemEfficientDenseBlock using duck-typing."""
     from app.core.vendor.esrgan_triton_kernels import MemEfficientDenseBlock
 
     replaced = 0
-    try:
-        from basicsr.archs.rrdbnet_arch import ResidualDenseBlock as BasicSRRDB
-    except ImportError:
-        logger.debug("basicsr not installed — dense block replacement skipped.")
-        return 0
-
-    for parent_name, parent_module in model.named_modules():
+    for parent_module in model.modules():
         for attr_name, child in list(parent_module.named_children()):
-            if isinstance(child, BasicSRRDB) and not isinstance(child, MemEfficientDenseBlock):
-                new_block = MemEfficientDenseBlock.from_module(child)
-                new_block = new_block.to(
-                    device=next(child.parameters()).device,
-                    dtype=next(child.parameters()).dtype,
-                )
-                setattr(parent_module, attr_name, new_block)
-                replaced += 1
+            # Detect RDB by checking for conv1-5 attributes
+            if not isinstance(child, MemEfficientDenseBlock) and all(
+                hasattr(child, f"conv{i}") for i in range(1, 6)
+            ):
+
+                try:
+                    new_block = MemEfficientDenseBlock.from_module(child)
+                    new_block = new_block.to(
+                        device=next(child.parameters()).device,
+                        dtype=next(child.parameters()).dtype,
+                    )
+                    setattr(parent_module, attr_name, new_block)
+                    replaced += 1
+                except Exception as e:
+                    logger.debug("Failed to replace dense block at %s: %s", attr_name, e)
 
     return replaced
 
 
 def _patch_rrdb_residual(model: nn.Module) -> int:
     """
-    Patch RRDB.forward to use triton_scale_add for the final skip connection:
-        out = out * 0.2 + x  →  triton_scale_add(out, x, 0.2)
+    Patch RRDB.forward to use triton_scale_add for the final skip connection.
     """
     from app.core.vendor.esrgan_triton_kernels import triton_scale_add
 
     patched = 0
-    try:
-        from basicsr.archs.rrdbnet_arch import RRDB
-    except ImportError:
-        return 0
-
     for module in model.modules():
-        if not isinstance(module, RRDB):
+        # Detect RRDB by checking for rdb1, rdb2, rdb3 attributes
+        if not (hasattr(module, "rdb1") and hasattr(module, "rdb2") and hasattr(module, "rdb3")):
             continue
         if getattr(module, "_triton_rrdb_patched", False):
             continue
 
         orig_fwd = module.forward
 
-        def _patched_fwd(x, _orig=orig_fwd, _sa=triton_scale_add):
+        def _patched_fwd(x, m=module, _sa=triton_scale_add):
             # Run the three RDB sub-blocks
-            out = module.rdb1(x)
-            out = module.rdb2(out)
-            out = module.rdb3(out)
+            out = m.rdb1(x)
+            out = m.rdb2(out)
+            out = m.rdb3(out)
             return _sa(out, x, scale=0.2)
 
-        module._orig_forward        = orig_fwd
-        module.forward              = _patched_fwd
+        module._orig_forward = orig_fwd
+        module.forward = _patched_fwd
         module._triton_rrdb_patched = True
         patched += 1
 
@@ -198,6 +198,8 @@ def _replace_pixel_shuffle(model: nn.Module) -> int:
 
 class _TritonPixelShuffle2x(nn.Module):
     """Wraps triton_pixel_shuffle_2x as an nn.Module."""
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         from app.core.vendor.esrgan_triton_kernels import triton_pixel_shuffle_2x
+
         return triton_pixel_shuffle_2x(x)

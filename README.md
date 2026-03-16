@@ -32,16 +32,17 @@ Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russia
 | Frame Extraction | FFmpeg NVDEC rawvideo pipe (no temp files) | ~5× |
 | Chroma Key | GPU PyTorch+kornia tensor ops | ~10× |
 | Chroma Key (batch) | Batched GPU processing (batch=16) | ~48× |
-| SAM Person Segmentation | Persistent model + torch.compile + CUDA graph | ~20× |
-| SAM LayerNorm | Custom Triton single-pass online variance | **1.45–1.53×** per LayerNorm |
+| SAM Person Segmentation | Persistent model — load once, reuse across frames | ~20× vs per-frame reload |
+| SAM CUDA Graph | CUDA graph on ViT encoder (fixed 1024×1024 shape) | eliminates launch overhead |
+| SAM LayerNorm | Custom Triton single-pass online variance | **1.45–1.53×** per block |
 | SAM Window Ops | Custom Triton fused gather/scatter partition | **1.52×** per block |
-| SAM (end-to-end) | All Triton kernels combined | **1.22×** vs compile+CUDA graph |
 | GFPGAN Face Restoration | Triton demod+act + CUDA graph | ~1.9× |
 | Real-ESRGAN Dense Blocks | MemEfficientDenseBlock (pre-alloc concat buffer) | **1.32×** per RRDB block |
 | Real-ESRGAN Scale+Add | Fused Triton scale+residual kernel | **1.62×** per skip connection |
 | Real-ESRGAN Pixel Shuffle | Triton fused rearrange kernel | **1.62×** per upscale stage |
 | Real-ESRGAN (end-to-end) | All Triton kernels combined | **1.24×** vs compile+CUDA graph |
 | Real-ESRGAN (TRT) | ORT TensorRT EP (cached engine) | **2.6×** vs PyTorch |
+| CUDA C++ Extension | Multi-arch JIT build (sm_75/80/86/89/90/120) | Turing → Blackwell |
 | All Models | cuDNN benchmark=True | ~5–15% free |
 
 ---
@@ -81,7 +82,7 @@ Encoder-only graph eliminates kernel-launch overhead but does not reduce end-to-
 - Homebrew
 
 ```bash
-git clone https://github.com/freddewitt/CorbeauSplat.git
+git clone https://github.com/Glat0s/CorbeauSplat.git
 cd CorbeauSplat
 ./run.command
 ```
@@ -89,12 +90,12 @@ cd CorbeauSplat
 ### Windows 11 (CUDA / RTX)
 - Windows 11
 - Python 3.11+ (from python.org — add to PATH)
-- NVIDIA GPU with CUDA 12.x (RTX 3000+ recommended, RTX 4090 optimal)
+- NVIDIA GPU with CUDA 12.x (RTX 2000+ / Turing sm_75 minimum; RTX 4090 optimal)
 - CUDA Toolkit 12.9 (optional — PyTorch wheels include CUDA runtime)
 - Git for Windows
 
 ```bat
-git clone https://github.com/freddewitt/CorbeauSplat.git
+git clone https://github.com/Glat0s/CorbeauSplat.git
 cd CorbeauSplat
 run.bat
 ```

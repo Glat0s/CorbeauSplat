@@ -12,22 +12,25 @@ Falls back gracefully to Triton / PyTorch equivalents when the extension
 cannot be compiled (no MSVC, missing CUDA, etc.).
 
 The extension is compiled once and cached in the torch extension cache dir.
+Multi-arch build targets sm_75 (Turing), sm_80 (A100), sm_86 (RTX 30xx),
+sm_89 (RTX 40xx), sm_90 (Hopper), sm_120 (Blackwell); PTX retained for
+forward-compatibility with future architectures.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 
 logger = logging.getLogger("cuda_ext")
 
-_EXT = None          # loaded extension module, or None
-_EXT_TRIED = False   # True after first load attempt (avoids repeated retries)
+_EXT = None  # loaded extension module, or None
+_EXT_TRIED = False  # True after first load attempt (avoids repeated retries)
 
 CSRC_DIR = Path(__file__).parent / "csrc"
 
@@ -36,8 +39,8 @@ CSRC_DIR = Path(__file__).parent / "csrc"
 # ─────────────────────────────────────────────────────────────────────────────
 
 _VS_INSTALL = r"D:\Microsoft Visual Studio\2022\Community"
-_MSVC_VER   = "14.37.32822"
-_CUDA_12_9  = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
+_MSVC_VER = "14.37.32822"
+_CUDA_12_9 = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9"
 _WINSDK_VER = "10.0.22621.0"
 _WINSDK_ROOT = r"D:\Windows Kits\10"
 
@@ -46,30 +49,37 @@ def _setup_msvc_env() -> dict:
     """Return os.environ copy with MSVC + Windows SDK variables set."""
     env = os.environ.copy()
     msvc_bin = rf"{_VS_INSTALL}\VC\Tools\MSVC\{_MSVC_VER}\bin\Hostx64\x64"
-    sdk_bin  = rf"{_WINSDK_ROOT}\bin\{_WINSDK_VER}\x64"
-    sdk_inc  = rf"{_WINSDK_ROOT}\Include\{_WINSDK_VER}"
-    sdk_lib  = rf"{_WINSDK_ROOT}\Lib\{_WINSDK_VER}"
+    sdk_bin = rf"{_WINSDK_ROOT}\bin\{_WINSDK_VER}\x64"
+    sdk_inc = rf"{_WINSDK_ROOT}\Include\{_WINSDK_VER}"
+    sdk_lib = rf"{_WINSDK_ROOT}\Lib\{_WINSDK_VER}"
     msvc_inc = rf"{_VS_INSTALL}\VC\Tools\MSVC\{_MSVC_VER}\include"
     msvc_lib = rf"{_VS_INSTALL}\VC\Tools\MSVC\{_MSVC_VER}\lib\x64"
 
     env["PATH"] = msvc_bin + ";" + sdk_bin + ";" + env.get("PATH", "")
     env["INCLUDE"] = (
-        msvc_inc + ";"
-        + rf"{sdk_inc}\ucrt" + ";"
-        + rf"{sdk_inc}\um" + ";"
-        + rf"{sdk_inc}\shared" + ";"
+        msvc_inc
+        + ";"
+        + rf"{sdk_inc}\ucrt"
+        + ";"
+        + rf"{sdk_inc}\um"
+        + ";"
+        + rf"{sdk_inc}\shared"
+        + ";"
         + env.get("INCLUDE", "")
     )
     env["LIB"] = (
-        msvc_lib + ";"
-        + rf"{sdk_lib}\ucrt\x64" + ";"
-        + rf"{sdk_lib}\um\x64" + ";"
+        msvc_lib
+        + ";"
+        + rf"{sdk_lib}\ucrt\x64"
+        + ";"
+        + rf"{sdk_lib}\um\x64"
+        + ";"
         + env.get("LIB", "")
     )
     env["LIBPATH"] = msvc_lib + ";" + env.get("LIBPATH", "")
     # Force CUDA 12.4 to match torch
-    env["CUDA_HOME"]  = _CUDA_12_9
-    env["CUDA_PATH"]  = _CUDA_12_9
+    env["CUDA_HOME"] = _CUDA_12_9
+    env["CUDA_PATH"] = _CUDA_12_9
     env["DISTUTILS_USE_SDK"] = "1"
     env["MSSdk"] = "1"
     return env
@@ -86,7 +96,7 @@ def _load_ext() -> Optional[object]:
         logger.info("CUDA not available — CUDA extension skipped.")
         return None
 
-    src_cu  = CSRC_DIR / "corbeau_kernels.cu"
+    src_cu = CSRC_DIR / "corbeau_kernels.cu"
     src_cpp = CSRC_DIR / "corbeau_ext.cpp"
     if not src_cu.exists() or not src_cpp.exists():
         logger.warning("CUDA extension sources not found in %s", CSRC_DIR)
@@ -108,7 +118,21 @@ def _load_ext() -> Optional[object]:
                 name="corbeau_cuda",
                 sources=[str(src_cpp), str(src_cu)],
                 extra_cuda_cflags=[
-                    "-arch=sm_89",       # RTX 4090 (Ada Lovelace)
+                    # Multi-arch PTX+SASS for broad GPU coverage:
+                    #   sm_75  Turing  (RTX 20xx)
+                    #   sm_80  Ampere  (A100)
+                    #   sm_86  Ampere  (RTX 30xx)
+                    #   sm_89  Ada     (RTX 40xx)
+                    #   sm_90  Hopper  (H100)
+                    #   sm_120 Blackwell (RTX 50xx / GB200)
+                    "-gencode=arch=compute_75,code=sm_75",
+                    "-gencode=arch=compute_80,code=sm_80",
+                    "-gencode=arch=compute_86,code=sm_86",
+                    "-gencode=arch=compute_89,code=sm_89",
+                    "-gencode=arch=compute_90,code=sm_90",
+                    "-gencode=arch=compute_120,code=sm_120",
+                    # PTX for future arch JIT
+                    "-gencode=arch=compute_120,code=compute_120",
                     "--use_fast_math",
                     "-O3",
                     "-lineinfo",
@@ -117,7 +141,7 @@ def _load_ext() -> Optional[object]:
                 extra_cflags=["/O2", "/std:c++17"],
                 verbose=False,
             )
-            logger.info("CorbeauSplat CUDA extension loaded (sm_89, CUDA 12.9).")
+            logger.info("CorbeauSplat CUDA extension loaded (multi-arch sm_75–sm_120, CUDA 12.9).")
             _EXT = ext
         finally:
             # Restore original environment
@@ -138,6 +162,7 @@ def _load_ext() -> Optional[object]:
 # Public Python wrappers (auto-select CUDA ext → Triton → PyTorch)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def layer_norm_cuda(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -153,12 +178,13 @@ def layer_norm_cuda(
     if ext is not None and x.is_cuda and x.dtype == torch.float16:
         orig = x.shape
         x2 = x.contiguous().view(-1, orig[-1])
-        y  = ext.layer_norm_fwd(x2, weight.half(), bias.half(), eps, fuse_gelu)
+        y = ext.layer_norm_fwd(x2, weight.half(), bias.half(), eps, fuse_gelu)
         return y.view(orig)
 
     # Triton fallback
     try:
         from app.core.vendor.sam_triton_kernels import _triton_layernorm_impl
+
         return _triton_layernorm_impl(x, weight, bias, eps, fuse_gelu)
     except Exception:
         pass
@@ -172,7 +198,7 @@ def layer_norm_cuda(
 
 def window_partition_cuda(
     x: torch.Tensor, window_size: int
-) -> Tuple[torch.Tensor, Tuple[int, int]]:
+) -> tuple[torch.Tensor, tuple[int, int]]:
     """
     (B, H, W, C) → (B*nH*nW, win, win, C).
     Matches SAM's window_partition API: pads x to next multiple of window_size
@@ -188,12 +214,13 @@ def window_partition_cuda(
     Hp, Wp = H + pad_h, W + pad_w
 
     ext = _load_ext()
-    if (ext is not None and x.is_cuda and x.dtype == torch.float16 and C % 8 == 0):
+    if ext is not None and x.is_cuda and x.dtype == torch.float16 and C % 8 == 0:
         return ext.window_partition_fwd(x.contiguous(), window_size), (Hp, Wp)
 
     # Triton fallback
     try:
         from app.core.vendor.sam_triton_kernels import triton_window_partition
+
         windows, _ = triton_window_partition(x, window_size)
         return windows, (Hp, Wp)
     except Exception:
@@ -207,8 +234,8 @@ def window_partition_cuda(
 def window_unpartition_cuda(
     windows: torch.Tensor,
     window_size: int,
-    pad_hw: Tuple[int, int],
-    hw: Optional[Tuple[int, int]] = None,
+    pad_hw: tuple[int, int],
+    hw: Optional[tuple[int, int]] = None,
 ) -> torch.Tensor:
     """
     Reverse of window_partition_cuda.
@@ -220,12 +247,13 @@ def window_unpartition_cuda(
     B = windows.shape[0] // (Hp // window_size * Wp // window_size)
 
     ext = _load_ext()
-    if (ext is not None and windows.is_cuda and windows.dtype == torch.float16 and C % 8 == 0):
+    if ext is not None and windows.is_cuda and windows.dtype == torch.float16 and C % 8 == 0:
         x = ext.window_unpartition_fwd(windows.contiguous(), window_size, Hp, Wp)
     else:
         # Triton fallback
         try:
             from app.core.vendor.sam_triton_kernels import triton_window_unpartition
+
             x = triton_window_unpartition(windows, window_size, (Hp, Wp))
         except Exception:
             # PyTorch fallback
@@ -248,14 +276,12 @@ def leaky_relu_scale_add_cuda(
 ) -> torch.Tensor:
     """Fused LeakyReLU(x)*scale + residual — ESRGAN RRDB skip connection."""
     ext = _load_ext()
-    if (ext is not None and x.is_cuda and x.dtype == torch.float16
-            and x.numel() % 2 == 0):
-        return ext.leaky_relu_scale_add(
-            x.contiguous(), residual.contiguous(), neg_slope, scale
-        )
+    if ext is not None and x.is_cuda and x.dtype == torch.float16 and x.numel() % 2 == 0:
+        return ext.leaky_relu_scale_add(x.contiguous(), residual.contiguous(), neg_slope, scale)
     # Triton fallback
     try:
         from app.core.vendor.esrgan_triton_kernels import triton_leakyrelu_inplace, triton_scale_add
+
         lrelu = triton_leakyrelu_inplace(x.clone(), neg_slope)
         return triton_scale_add(lrelu, residual, scale)
     except Exception:

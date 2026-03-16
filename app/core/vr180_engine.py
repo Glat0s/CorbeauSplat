@@ -17,18 +17,17 @@ Key optimisations vs. the original implementation:
   - PersistentSAMPredictor loads the ViT model once instead of per-frame
     (~20× faster SAM inference).
 """
-import os
+
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import numpy as np
 
 from .base_engine import BaseEngine
-from .system import resolve_binary, is_windows
 from .gpu_chroma_key import GPUChromaKey
 from .sam_optimized import PersistentSAMPredictor
+from .system import is_windows, resolve_binary
 
 
 class VR180Engine(BaseEngine):
@@ -50,6 +49,7 @@ class VR180Engine(BaseEngine):
     def is_cv2_available(self) -> bool:
         try:
             import cv2  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -57,6 +57,7 @@ class VR180Engine(BaseEngine):
     def is_sam_available(self) -> bool:
         try:
             from segment_anything import sam_model_registry  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -135,13 +136,19 @@ class VR180Engine(BaseEngine):
         if is_windows():
             # NVDEC decode; keep software filter for crop+fps
             cmd.extend(["-hwaccel", "cuda"])
-        cmd.extend([
-            "-i", video_path,
-            "-vf", f"fps={fps},{crop_filter}",
-            "-pix_fmt", "bgr24",
-            "-f", "rawvideo",
-            "-",
-        ])
+        cmd.extend(
+            [
+                "-i",
+                video_path,
+                "-vf",
+                f"fps={fps},{crop_filter}",
+                "-pix_fmt",
+                "bgr24",
+                "-f",
+                "rawvideo",
+                "-",
+            ]
+        )
 
         try:
             proc = subprocess.Popen(
@@ -154,7 +161,13 @@ class VR180Engine(BaseEngine):
                 raw = proc.stdout.read(frame_bytes)
                 if len(raw) < frame_bytes:
                     break
-                frame = np.frombuffer(raw, dtype=np.uint8).reshape(frame_h, frame_w, 3).copy()
+                try:
+                    frame = np.frombuffer(raw, dtype=np.uint8).reshape(frame_h, frame_w, 3).copy()
+                except ValueError:
+                    self.log(
+                        f"Skipping malformed frame (got {len(raw)} bytes, expected {frame_bytes})"
+                    )
+                    continue
                 yield frame
             proc.stdout.close()
             proc.wait()
@@ -255,19 +268,19 @@ class VR180Engine(BaseEngine):
         _log("=== VR 180 Processing Pipeline ===")
         _log(f"Video: {video_path}")
 
-        fmt            = params.get("vr_format", "sbs")
-        eye            = params.get("eye", "left")
-        fps            = float(params.get("fps", 5.0))
-        use_sam        = params.get("use_sam", False)
+        fmt = params.get("vr_format", "sbs")
+        eye = params.get("eye", "left")
+        fps = float(params.get("fps", 5.0))
+        use_sam = params.get("use_sam", False)
         sam_checkpoint = params.get("sam_checkpoint", "")
         sam_model_type = params.get("sam_model_type", "vit_b")
-        hue_center     = int(params.get("hue_center", 60))
-        hue_range      = int(params.get("hue_range", 25))
-        sat_min        = int(params.get("sat_min", 60))
-        val_min        = int(params.get("val_min", 40))
-        blur_px        = int(params.get("blur_px", 3))
-        batch_size     = int(params.get("batch_size", 8))
-        device         = params.get("device", "cuda" if is_windows() else "cpu")
+        hue_center = int(params.get("hue_center", 60))
+        hue_range = int(params.get("hue_range", 25))
+        sat_min = int(params.get("sat_min", 60))
+        val_min = int(params.get("val_min", 40))
+        blur_px = int(params.get("blur_px", 3))
+        batch_size = int(params.get("batch_size", 8))
+        device = params.get("device", "cuda" if is_windows() else "cpu")
 
         _log(f"Format: {fmt.upper()} | Eye: {eye} | FPS: {fps} | Device: {device}")
         _log(f"Green screen: hue={hue_center}±{hue_range}, sat≥{sat_min}, val≥{val_min}")
@@ -312,6 +325,7 @@ class VR180Engine(BaseEngine):
                     sam_alpha = sam.predict_frame(rgb)
                     if sam_alpha is not None:
                         import cv2 as _cv2
+
                         k = np.ones((5, 5), np.uint8)
                         combined = _cv2.bitwise_and(prior_alpha, sam_alpha)
                         combined = _cv2.morphologyEx(combined, _cv2.MORPH_CLOSE, k)
@@ -342,9 +356,8 @@ class VR180Engine(BaseEngine):
                     _status(f"Processed {total_written} frames…")
 
         # Flush remaining frames
-        if frame_buffer:
-            if not (check_cancel and check_cancel()):
-                total_written += _flush_batch(frame_buffer, frame_idx)
+        if frame_buffer and not (check_cancel and check_cancel()):
+            total_written += _flush_batch(frame_buffer, frame_idx)
 
         if total_written == 0:
             _log("No frames were written. Check video path and format settings.")

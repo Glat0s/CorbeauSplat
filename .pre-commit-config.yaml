@@ -1,0 +1,67 @@
+repos:
+  # ── Standard hooks ───────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]          # block files >2 MB (weights ship separately)
+      - id: debug-statements           # catch leftover pdb / breakpoint()
+      - id: check-ast                  # Python syntax check
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ── Python import sorting ────────────────────────────────────────────────
+  - repo: https://github.com/PyCQA/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        args: [--profile=black, --line-length=100]
+
+  # ── Python formatting ────────────────────────────────────────────────────
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        args: [--line-length=100]
+        language_version: python3
+
+  # ── Linting / static analysis ───────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.2
+    hooks:
+      - id: ruff
+        args:
+          - --select=E,F,W,B,UP,C4,SIM
+          - --ignore=E501,B008,UP007,SIM117
+          - --fix
+
+  # ── Security scanning ────────────────────────────────────────────────────
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml]
+        additional_dependencies: ["bandit[toml]"]
+
+  # ── CUDA / C++ source hygiene ────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: no-hardcoded-paths
+        name: No hardcoded Windows paths in Python source
+        language: pygrep
+        files: ^app/.*\.py$
+        entry: '(?i)(C:\\\\Users\\\\|D:\\\\Users\\\\|C:/Users/|D:/Users/)'
+        pass_filenames: true
+
+      - id: requirements-locked
+        name: requirements.txt must not be empty
+        language: script
+        entry: bash -c 'python -c "import sys; lines=[l for l in open(\"requirements.txt\") if l.strip() and not l.startswith(\"#\")]; sys.exit(0 if lines else 1)"'
+        pass_filenames: false
+        files: ^requirements\.txt$

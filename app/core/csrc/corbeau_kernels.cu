@@ -8,7 +8,7 @@
  *   4. leaky_relu_scale_add_f4      — fused LeakyReLU(x)*scale + residual (ESRGAN RRDB skip)
  *   5. pixel_shuffle_2x_kernel      — shared-memory pixel shuffle 2× (ESRGAN upsampling)
  *
- * Compile flags: -arch=sm_89 --use_fast_math -O3
+ * Compile flags: -gencode sm_75/80/86/89/90/120 --use_fast_math -O3
  */
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
