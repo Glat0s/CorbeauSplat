@@ -1,10 +1,11 @@
-
+import contextlib
+import json
 import os
-import sys
 import shutil
 import subprocess
-import json
+import sys
 from pathlib import Path
+
 from app.core.system import resolve_project_root
 
 # Constants
@@ -15,8 +16,10 @@ GLOMAP_REPO = "https://github.com/colmap/glomap.git"
 SUPERPLAT_REPO = "https://github.com/playcanvas/supersplat.git"
 REALESRGAN_PIP = "realesrgan"
 
+
 class EngineDependency:
     """Represents an external engine (Colmap, Glomap, Brush, etc.)"""
+
     def __init__(self, name, repo_url=None, bin_name=None):
         self.name = name
         self.repo_url = repo_url
@@ -47,9 +50,12 @@ class EngineDependency:
         self.version_file.write_text(version)
 
     def get_remote_version(self) -> str:
-        if not self.repo_url: return ""
+        if not self.repo_url:
+            return ""
         try:
-            output = subprocess.check_output(["git", "ls-remote", self.repo_url, "HEAD"], text=True).strip()
+            output = subprocess.check_output(
+                ["git", "ls-remote", self.repo_url, "HEAD"], text=True
+            ).strip()
             return output.split()[0] if output else ""
         except Exception as e:
             print(f"Warning: Failed to get remote version for {self.repo_url}: {e}")
@@ -57,7 +63,8 @@ class EngineDependency:
 
     def update_git(self):
         """Clones or pulls the repository"""
-        if not self.repo_url: return
+        if not self.repo_url:
+            return
         self.engines_dir.mkdir(parents=True, exist_ok=True)
         if not self.target_dir.exists():
             print(f"Cloning {self.name}...")
@@ -80,42 +87,64 @@ class EngineDependency:
         print(f"{self.name} uninstalled.")
         return True
 
+
 class PipEngine(EngineDependency):
     """Engine installed via pip in a dedicated venv"""
+
     def __init__(self, name, repo_url, venv_name):
         super().__init__(name, repo_url)
         self.venv_dir = self.root / venv_name
-        self.python_bin = self.venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / ("python.exe" if sys.platform == "win32" else "python")
-        self.bin_path = self.python_bin # For pip engines, the python bin is the marker
+        self.python_bin = (
+            self.venv_dir
+            / ("Scripts" if sys.platform == "win32" else "bin")
+            / ("python.exe" if sys.platform == "win32" else "python")
+        )
+        self.bin_path = self.python_bin  # For pip engines, the python bin is the marker
 
     def is_installed(self) -> bool:
         return self.python_bin.exists()
 
     def create_venv(self, python_cmd=sys.executable):
         if self.venv_dir.exists() and not self.python_bin.exists():
-            print(f"Broken venv detected at {self.venv_dir} (symlink or binary missing). Removing...")
+            print(
+                f"Broken venv detected at {self.venv_dir} (symlink or binary missing). Removing..."
+            )
             shutil.rmtree(str(self.venv_dir))
 
         if not self.venv_dir.exists():
             print(f"Creating venv: {self.venv_dir}")
             subprocess.check_call([python_cmd, "-m", "venv", str(self.venv_dir)])
-        
+
         # Ensure pip is present (sometimes venv is created --without-pip on some systems)
-        try:
-            subprocess.check_call([str(self.python_bin), "-m", "ensurepip", "--upgrade"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except:
-            pass
-            
+        with contextlib.suppress(Exception):
+            subprocess.check_call(
+                [str(self.python_bin), "-m", "ensurepip", "--upgrade"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
         # Upgrade pip
         try:
-            subprocess.check_call([str(self.python_bin), "-m", "pip", "install", "--upgrade", "pip", "--no-input"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.check_call(
+                [str(self.python_bin), "-m", "pip", "install", "--upgrade", "pip", "--no-input"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         except Exception as e:
             print(f"Warning: Failed to upgrade pip in {self.venv_dir}: {e}")
 
     def pip_install(self, args, cwd=None):
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
-        subprocess.check_call([str(self.python_bin), "-m", "pip", "install"] + args + ["--no-input", "--progress-bar", "off"], env=env, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call(
+            [str(self.python_bin), "-m", "pip", "install"]
+            + args
+            + ["--no-input", "--progress-bar", "off"],
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def uninstall(self):
         """Remove venv and target_dir"""
@@ -136,21 +165,23 @@ class DependencyManager:
     def get_config(self) -> dict:
         p = self.engines_dir.parent / "config.json"
         if p.exists():
-            try: return json.loads(p.read_text())
-            except: pass
+            try:
+                return json.loads(p.read_text())
+            except Exception:
+                pass
         return {}
 
     def main_install(self, check_only=False, startup=False):
         print("--- System Dependency Check ---")
         install_system_dependencies(check_only=check_only or startup)
-        
+
         config = self.get_config()
         missing_engines_startup = False
-        
+
         for name, engine in self.engines.items():
             # [AUDIT] OCP : Le moteur decide s'il est active
             enabled = engine.is_enabled_in_config(config)
-            
+
             # During --check or --startup, we audit everything. During install, we respect enablement.
             if not enabled and not (check_only or startup):
                 continue
@@ -162,7 +193,7 @@ class DependencyManager:
 
             if not engine.is_installed():
                 if check_only:
-                    pass # Just report status later
+                    pass  # Just report status later
                 elif startup:
                     print(f">>> Auto-installing {name.capitalize()} on startup...")
                     try:
@@ -173,30 +204,32 @@ class DependencyManager:
                 else:
                     print(f">>> Auto-installing missing engine [{name}]...")
                     engine.install()
-                        
+
                 # Report status for check/startup
                 if not engine.is_installed():
                     status = f"  ❌ {name.capitalize()}: Missing"
-                    if startup: print(status)
-                    elif check_only: print(status)
+                    if startup or check_only:
+                        print(status)
                     missing_engines_startup = True
 
             elif remote and local and remote != local_clean:
                 # Update Available
-                
+
                 # Check Auto-Update Preference
                 cfg_section = config.get("config", {})
-                auto_update = config.get(f"{name}_auto_update", False) or cfg_section.get(f"{name}_auto_update", False)
-                
+                auto_update = config.get(f"{name}_auto_update", False) or cfg_section.get(
+                    f"{name}_auto_update", False
+                )
+
                 if startup and auto_update:
-                     print(f">>> Auto-updating {name.capitalize()}...")
-                     try:
-                         engine.install()
-                         print(f"✅ {name.capitalize()} updated.")
-                     except Exception as e:
-                         print(f"❌ Auto-update failed for {name}: {e}")
+                    print(f">>> Auto-updating {name.capitalize()}...")
+                    try:
+                        engine.install()
+                        print(f"✅ {name.capitalize()} updated.")
+                    except Exception as e:
+                        print(f"❌ Auto-update failed for {name}: {e}")
                 elif check_only:
-                     print(f"  ⚠️  {name.capitalize()}: Update available ({local_clean} -> {remote})")
+                    print(f"  ⚠️  {name.capitalize()}: Update available ({local_clean} -> {remote})")
                 else:
                     print(f">>> Auto-updating {name} ({local_clean} -> {remote})...")
                     engine.install()
@@ -207,13 +240,16 @@ class DependencyManager:
         if missing_engines_startup:
             print("\nℹ️  Note: Automatically installed missing engines.")
 
+
 class Extractor360EngineDep(PipEngine):
     def __init__(self):
         super().__init__("extractor_360", EXTRACTOR_360_REPO, ".venv_360")
         self.script_path = self.target_dir / "src" / "main.py"
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("extractor_360_params", {}).get("enabled", False) or config.get("extractor_360_enabled", False)
+        return config.get("extractor_360_params", {}).get("enabled", False) or config.get(
+            "extractor_360_enabled", False
+        )
 
     def install(self):
         self.update_git()
@@ -223,21 +259,25 @@ class Extractor360EngineDep(PipEngine):
             self.pip_install(["-r", str(req_file)])
         self.save_local_version(self.get_remote_version())
 
+
 class BrushEngineDep(EngineDependency):
     def __init__(self):
         super().__init__("brush", BRUSH_REPO)
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("brush_params", {}).get("enabled", False) or config.get("brush_enabled", False)
+        return config.get("brush_params", {}).get("enabled", False) or config.get(
+            "brush_enabled", False
+        )
 
     def get_remote_version(self) -> str:
         """Queries GitHub API for the latest Brush release tag."""
-        import urllib.request
         import json as _json
+        import urllib.request
+
         try:
             req = urllib.request.Request(
                 "https://api.github.com/repos/ArthurBrussee/brush/releases/latest",
-                headers={"Accept": "application/vnd.github+json", "User-Agent": "CorbeauSplat"}
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "CorbeauSplat"},
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = _json.loads(resp.read())
@@ -262,10 +302,8 @@ class BrushEngineDep(EngineDependency):
 
     def install(self):
         config = {}
-        try:
+        with contextlib.suppress(Exception):
             config = json.loads((self.root / "config.json").read_text())
-        except:
-            pass
         build_mode = config.get("brush_params", {}).get("build_mode", "release")
 
         if build_mode == "source":
@@ -279,10 +317,12 @@ class BrushEngineDep(EngineDependency):
         if self.bin_path.exists():
             local_ver = self.get_local_version()
             installed_as_source = "-source" in local_ver
-            requested_source = (build_mode == "source")
+            requested_source = build_mode == "source"
 
             if installed_as_source != requested_source:
-                print(f"Build mode changed ({'release → source' if requested_source else 'source → release'}). Replacing existing binary...")
+                print(
+                    f"Build mode changed ({'release → source' if requested_source else 'source → release'}). Replacing existing binary..."
+                )
                 self.bin_path.unlink()
                 if self.version_file.exists():
                     self.version_file.unlink()
@@ -303,18 +343,20 @@ class BrushEngineDep(EngineDependency):
 
         if build_mode == "source":
             head = remote_ref or "HEAD"
-            print(f"Mode source sélectionné — compilation depuis HEAD ({head[:7]})...")
+            print(f"Source mode selected — compiling from HEAD ({head[:7]})...")
             if not self._install_from_source(head):
-                print("❌ Compilation source échouée. Relancez après avoir vérifié votre installation Rust/cargo.")
+                print(
+                    "❌ Source compilation failed. Relaunch after verifying your Rust/cargo installation."
+                )
         else:
-            print(f"Mode release sélectionné ({release_version}). Téléchargement...")
+            print(f"Release mode selected ({release_version}). Downloading...")
             if not self._install_from_release(release_version):
-                print("❌ Téléchargement release échoué. Vérifiez votre connexion.")
+                print("❌ Release download failed. Check your connection.")
 
     def _install_from_release(self, version: str) -> bool:
         import platform
-        import urllib.request
         import tarfile
+        import urllib.request
         import zipfile
 
         system = platform.system()
@@ -349,11 +391,11 @@ class BrushEngineDep(EngineDependency):
         extract_dir.mkdir(exist_ok=True)
         try:
             if archive_path.name.endswith(".zip"):
-                with zipfile.ZipFile(archive_path, 'r') as zf:
-                    zf.extractall(extract_dir)
+                with zipfile.ZipFile(archive_path, "r") as zf:
+                    zf.extractall(extract_dir)  # nosec B202
             else:
-                with tarfile.open(archive_path, 'r:xz') as tf:
-                    tf.extractall(extract_dir)
+                with tarfile.open(archive_path, "r:xz") as tf:
+                    tf.extractall(extract_dir)  # nosec B202
         except Exception as e:
             print(f"⚠️ Extraction failed: {e}")
             archive_path.unlink(missing_ok=True)
@@ -365,7 +407,7 @@ class BrushEngineDep(EngineDependency):
         # Find the executable anywhere in the extracted tree
         extracted_bin = None
         bin_names = {"brush-app", "brush_app", "brush-app.exe", "brush_app.exe"}
-        for root_dir, dirs, files in os.walk(str(extract_dir)):
+        for root_dir, _dirs, files in os.walk(str(extract_dir)):
             for f in files:
                 if f in bin_names:
                     extracted_bin = Path(root_dir) / f
@@ -383,7 +425,7 @@ class BrushEngineDep(EngineDependency):
         shutil.rmtree(str(extract_dir), ignore_errors=True)
 
         if system != "Windows":
-            os.chmod(str(dest), 0o755)
+            os.chmod(str(dest), 0o755)  # nosec B103
 
         self.save_local_version(version)
         print(f"✅ Brush {version} installed successfully from release binary.")
@@ -402,7 +444,15 @@ class BrushEngineDep(EngineDependency):
                 return False
 
         # Build from HEAD (no --tag), try --locked first then without
-        base_cmd = [cargo, "install", "--git", self.repo_url, "brush-app", "--root", str(self.engines_dir)]
+        base_cmd = [
+            cargo,
+            "install",
+            "--git",
+            self.repo_url,
+            "brush-app",
+            "--root",
+            str(self.engines_dir),
+        ]
         env = os.environ.copy()
         # Ensure cargo home bin is in PATH after potential rustup install
         cargo_bin = Path.home() / ".cargo" / "bin"
@@ -445,12 +495,15 @@ class BrushEngineDep(EngineDependency):
         print(f"✅ Brush compiled from HEAD ({head_ref[:7] if head_ref else '?'}) and installed.")
         return True
 
+
 class SharpEngineDep(PipEngine):
     def __init__(self):
         super().__init__("sharp", SHARP_REPO, ".venv_sharp")
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("sharp_params", {}).get("enabled", False) or config.get("sharp_enabled", False)
+        return config.get("sharp_params", {}).get("enabled", False) or config.get(
+            "sharp_enabled", False
+        )
 
     def install(self):
         self.update_git()
@@ -466,32 +519,38 @@ class SharpEngineDep(PipEngine):
             loose = self.target_dir / "requirements_loose.txt"
             relax_requirements(str(req_file), str(loose))
             self.pip_install(["-r", str(loose)], cwd=str(self.target_dir))
-        
+
         if (self.target_dir / "setup.py").exists() or (self.target_dir / "pyproject.toml").exists():
             self.pip_install(["-e", "."], cwd=str(self.target_dir))
-            
+
         self.save_local_version(self.get_remote_version())
+
 
 def load_config():
     """Loads config.json from project root/cwd"""
     p = Path("config.json")
     if p.exists():
-        try: return json.loads(p.read_text())
-        except: pass
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            pass
     return {}
+
 
 def relax_requirements(src, dst):
     """Refactor utils: Relax strict torch deps"""
-    with open(src, 'r') as f_in, open(dst, 'w') as f_out:
+    with open(src) as f_in, open(dst, "w") as f_out:
         for line in f_in:
-            if line.strip().startswith('torch==') or line.strip().startswith('torchvision=='):
-                line = line.replace('==', '>=')
+            if line.strip().startswith("torch==") or line.strip().startswith("torchvision=="):
+                line = line.replace("==", ">=")
             f_out.write(line)
+
 
 def install_system_dependencies(check_only=False):
     if sys.platform == "win32":
         return _install_system_dependencies_windows(check_only)
     return _install_system_dependencies_macos(check_only)
+
 
 def _install_system_dependencies_windows(check_only=False):
     print("--- System Dependency Check (Windows) ---")
@@ -524,9 +583,13 @@ def _install_system_dependencies_windows(check_only=False):
     try:
         if has_winget:
             if "colmap" in missing:
-                subprocess.check_call(["winget", "install", "--id", "UB-Mannheim.COLMAP", "-e", "--silent"])
+                subprocess.check_call(
+                    ["winget", "install", "--id", "UB-Mannheim.COLMAP", "-e", "--silent"]
+                )
             if "ffmpeg" in missing:
-                subprocess.check_call(["winget", "install", "--id", "Gyan.FFmpeg", "-e", "--silent"])
+                subprocess.check_call(
+                    ["winget", "install", "--id", "Gyan.FFmpeg", "-e", "--silent"]
+                )
         elif has_choco:
             if "colmap" in missing:
                 subprocess.check_call(["choco", "install", "colmap", "-y"])
@@ -538,19 +601,34 @@ def _install_system_dependencies_windows(check_only=False):
         print("Please install manually: COLMAP and FFmpeg, then add them to PATH.")
         return False
 
+
 def _install_system_dependencies_macos(check_only=False):
     print("--- System Dependency Check (Homebrew) ---")
     missing = []
     for cmd in ["colmap", "ffmpeg"]:
-        if shutil.which(cmd) is None: missing.append(cmd)
+        if shutil.which(cmd) is None:
+            missing.append(cmd)
 
     if sys.platform == "darwin":
         try:
-             if subprocess.run(["brew", "list", "libomp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-                 missing.append("libomp")
-             if subprocess.run(["brew", "list", "freeimage"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
-                 missing.append("freeimage")
-        except: pass
+            if (
+                subprocess.run(
+                    ["brew", "list", "libomp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                ).returncode
+                != 0
+            ):
+                missing.append("libomp")
+            if (
+                subprocess.run(
+                    ["brew", "list", "freeimage"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                ).returncode
+                != 0
+            ):
+                missing.append("freeimage")
+        except Exception:
+            pass
 
     if not missing:
         print("✅ System dependencies present.")
@@ -567,52 +645,65 @@ def _install_system_dependencies_macos(check_only=False):
 
     print("Installing via Homebrew...")
     try:
-        if "colmap" in missing: subprocess.check_call(["brew", "install", "colmap"])
-        if "ffmpeg" in missing: subprocess.check_call(["brew", "install", "ffmpeg"])
-        if "libomp" in missing: subprocess.check_call(["brew", "install", "libomp"])
-        if "freeimage" in missing: subprocess.check_call(["brew", "install", "freeimage"])
+        if "colmap" in missing:
+            subprocess.check_call(["brew", "install", "colmap"])
+        if "ffmpeg" in missing:
+            subprocess.check_call(["brew", "install", "ffmpeg"])
+        if "libomp" in missing:
+            subprocess.check_call(["brew", "install", "libomp"])
+        if "freeimage" in missing:
+            subprocess.check_call(["brew", "install", "freeimage"])
         return True
-    except:
+    except Exception:
         print("System installation failed.")
         return False
+
 
 def install_node_js():
     if sys.platform == "win32":
         print("Installing Node.js via winget...")
         try:
-            subprocess.check_call(["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"])
+            subprocess.check_call(
+                ["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--silent"]
+            )
             return True
-        except:
+        except Exception:
             print("Please install Node.js manually from https://nodejs.org/")
             return False
     print("Installing Node.js via Homebrew...")
     try:
         subprocess.check_call(["brew", "install", "node"])
         return True
-    except: return False
+    except Exception:
+        return False
+
 
 def install_build_tools():
     if sys.platform == "win32":
         print("Installing CMake & Ninja via winget...")
         try:
             subprocess.check_call(["winget", "install", "--id", "Kitware.CMake", "-e", "--silent"])
-            subprocess.check_call(["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"])
+            subprocess.check_call(
+                ["winget", "install", "--id", "Ninja-build.Ninja", "-e", "--silent"]
+            )
             return True
-        except:
+        except Exception:
             print("Please install CMake and Ninja manually.")
             return False
     print("Installing CMake & Ninja via Homebrew...")
     try:
         subprocess.check_call(["brew", "install", "cmake", "ninja"])
         return True
-    except: return False
-
+    except Exception:
+        return False
 
 
 # resolve_project_root is now imported from app.core.system
 
+
 def uninstall_sharp():
     return SharpEngineDep().uninstall()
+
 
 def install_sharp(engines_dir=None, version_file=None):
     # Compatibility wrapper
@@ -620,21 +711,26 @@ def install_sharp(engines_dir=None, version_file=None):
     dep.install()
     return dep.is_installed()
 
+
 def uninstall_upscale():
     return UpscaleEngineDep().uninstall()
+
 
 def install_upscale():
     dep = UpscaleEngineDep()
     dep.install()
     return dep.is_installed()
 
+
 def uninstall_extractor_360():
     return Extractor360EngineDep().uninstall()
+
 
 def install_extractor_360():
     dep = Extractor360EngineDep()
     dep.install()
     return dep.is_installed()
+
 
 def get_venv_360_python():
     """Returns path to python executable in .venv_360"""
@@ -642,6 +738,7 @@ def get_venv_360_python():
     if sys.platform == "win32":
         return root / ".venv_360" / "Scripts" / "python.exe"
     return root / ".venv_360" / "bin" / "python"
+
 
 def get_remote_version(repo_url):
     """Gets the latest commit hash from the remote git repository"""
@@ -653,13 +750,15 @@ def get_remote_version(repo_url):
         print(f"Attention: Impossible de verifier la version distante pour {repo_url}: {e}")
     return None
 
+
 def get_local_version(version_file: Path):
     if version_file.exists():
         try:
             return version_file.read_text().strip()
-        except:
+        except Exception:
             pass
     return None
+
 
 def save_local_version(version_file: Path, version):
     if version:
@@ -669,38 +768,51 @@ def save_local_version(version_file: Path, version):
         except Exception as e:
             print(f"Attention: Impossible d'enregistrer la version locale: {e}")
 
+
 # --- CHECKERS ---
+
 
 def check_cargo():
     return shutil.which("cargo") is not None
 
+
 def check_brew():
     return shutil.which("brew") is not None
+
 
 def check_node():
     return shutil.which("node") is not None and shutil.which("npm") is not None
 
+
 def check_cmake_ninja():
     return shutil.which("cmake") is not None and shutil.which("ninja") is not None
 
+
 def check_xcode_tools():
     """Checks if Xcode Command Line Tools are installed (macOS only)"""
-    if sys.platform != "darwin": return True
+    if sys.platform != "darwin":
+        return True
     try:
         # xcode-select -p prints the path if installed, or exits with error
-        subprocess.check_call(["xcode-select", "-p"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.check_call(
+            ["xcode-select", "-p"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
         return True
-    except:
+    except Exception:
         return False
 
+
 # --- INSTALLERS HELPERS ---
+
 
 def install_rust_toolchain():
     print("Installing Rust (cargo)...")
     try:
         if sys.platform == "win32":
             # On Windows, download and run rustup-init.exe
-            import urllib.request, tempfile
+            import tempfile
+            import urllib.request
+
             rustup_url = "https://win.rustup.rs/x86_64"
             with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
                 tmp_path = tmp.name
@@ -711,7 +823,7 @@ def install_rust_toolchain():
             # Install rustup non-interactively on Unix
             subprocess.check_call(
                 "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-                shell=True
+                shell=True,
             )
 
         # Add cargo bin to current PATH for this session
@@ -724,24 +836,27 @@ def install_rust_toolchain():
         print(f"Error installing Rust: {e}")
     return False
 
+
 class SuperSplatEngineDep(EngineDependency):
     def __init__(self):
         super().__init__("supersplat", SUPERPLAT_REPO)
 
     def install(self):
-        if not shutil.which("node"):
-            if not install_node_js(): return
-        
+        if not shutil.which("node") and not install_node_js():
+            return
+
         # Reset local changes before pull to avoid conflicts (package-lock.json)
         if self.target_dir.exists():
-             try:
-                 subprocess.check_call(["git", "-C", str(self.target_dir), "reset", "--hard", "HEAD"])
-             except: pass
-             
+            with contextlib.suppress(Exception):
+                subprocess.check_call(
+                    ["git", "-C", str(self.target_dir), "reset", "--hard", "HEAD"]
+                )
+
         self.update_git()
         subprocess.check_call(["npm", "install"], cwd=str(self.target_dir))
         subprocess.check_call(["npm", "run", "build"], cwd=str(self.target_dir))
         self.save_local_version(self.get_remote_version())
+
 
 class GlomapEngineDep(EngineDependency):
     def __init__(self):
@@ -753,10 +868,10 @@ class GlomapEngineDep(EngineDependency):
         if sys.platform == "darwin" and not check_xcode_tools():
             print("Xcode Command Line Tools required.")
             return
-        
-        if not check_cmake_ninja():
-            if not install_build_tools(): return
-            
+
+        if not check_cmake_ninja() and not install_build_tools():
+            return
+
         self.update_git()
         # Source dir is now handled by update_git via self.target_dir
         source_dir = self.target_dir
@@ -766,91 +881,113 @@ class GlomapEngineDep(EngineDependency):
         if build_dir.exists():
             shutil.rmtree(str(build_dir))
         build_dir.mkdir(exist_ok=True)
-        
+
         cmake_args = ["cmake", "..", "-GNinja", "-DCMAKE_BUILD_TYPE=Release"]
         env = os.environ.copy()
-        
+
         if sys.platform == "darwin":
             try:
                 libomp = subprocess.check_output(["brew", "--prefix", "libomp"], text=True).strip()
                 include_p = f"{libomp}/include"
                 lib_p = f"{libomp}/lib"
-                cmake_args.extend([
-                    f"-DOpenMP_ROOT={libomp}",
-                    "-DOpenMP_C_FLAGS=-Xpreprocessor -fopenmp",
-                    "-DOpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp"
-                ])
+                cmake_args.extend(
+                    [
+                        f"-DOpenMP_ROOT={libomp}",
+                        "-DOpenMP_C_FLAGS=-Xpreprocessor -fopenmp",
+                        "-DOpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp",
+                    ]
+                )
                 env["LDFLAGS"] = f"-L{lib_p} -lomp"
                 env["CPPFLAGS"] = f"-I{include_p} -Xpreprocessor -fopenmp"
-            except: pass
+            except Exception:
+                pass
 
         subprocess.check_call(cmake_args, cwd=str(build_dir), env=env)
         subprocess.check_call(["ninja"], cwd=str(build_dir), env=env)
-        
+
         # Binary name is glomap
         built_bin = None
         for p in [build_dir / "glomap" / "glomap", build_dir / "glomap"]:
             if p.exists() and not p.is_dir():
                 built_bin = p
                 break
-        
+
         if built_bin:
             shutil.copy2(str(built_bin), str(self.engines_dir / "glomap"))
             self.save_local_version(self.get_remote_version())
 
+
 class UpscaleEngineDep(PipEngine):
     """Upscale is special as it installs in main sys.executable (usually)"""
+
     def __init__(self):
         # We use a fake venv name to satisfy PipEngine but we'll override
         super().__init__("upscale", None, "fake")
         self.python_bin = Path(sys.executable)
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("upscale_params", {}).get("enabled", False) or config.get("upscale_enabled", False)
+        return config.get("upscale_params", {}).get("enabled", False) or config.get(
+            "upscale_enabled", False
+        )
 
     def is_installed(self) -> bool:
         from app.core.upscale_engine import UpscaleEngine
+
         return UpscaleEngine().is_installed()
 
     def install(self):
         # torch 2.8.0 / torchvision 0.23.0 — pinned pair for reproducibility
         if sys.platform == "win32":
-            self.pip_install([
-                "torch==2.8.0", "torchvision==0.23.0",
-                "--index-url", "https://download.pytorch.org/whl/cu129"
-            ])
+            self.pip_install(
+                [
+                    "torch==2.8.0",
+                    "torchvision==0.23.0",
+                    "--index-url",
+                    "https://download.pytorch.org/whl/cu129",
+                ]
+            )
         else:
             self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
         pkgs = ["realesrgan==0.3.0", "kornia==0.8.2", "onnxruntime-gpu==1.24.3"]
         print(f"Installing/Updating: {', '.join(pkgs)}...")
         self.pip_install(pkgs)
 
+
 class VR180EngineDep(PipEngine):
     """VR 180 green-screen segmentation engine (SAM + OpenCV + torch)"""
+
     def __init__(self):
         super().__init__("vr180", None, ".venv_vr180")
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("vr180_params", {}).get("enabled", False) or config.get("vr180_enabled", False)
+        return config.get("vr180_params", {}).get("enabled", False) or config.get(
+            "vr180_enabled", False
+        )
 
     def install(self):
         self.create_venv()
         # torch 2.8.0 / torchvision 0.23.0 — pinned pair for reproducibility
         if sys.platform == "win32":
-            self.pip_install([
-                "torch==2.8.0", "torchvision==0.23.0",
-                "--index-url", "https://download.pytorch.org/whl/cu129"
-            ])
+            self.pip_install(
+                [
+                    "torch==2.8.0",
+                    "torchvision==0.23.0",
+                    "--index-url",
+                    "https://download.pytorch.org/whl/cu129",
+                ]
+            )
             # triton-windows enables torch.compile on Windows
             self.pip_install(["triton-windows==3.6.0.post26"])
         else:
             self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
-        self.pip_install([
-            "opencv-python==4.13.0.92",
-            "numpy==2.4.3",
-            "kornia==0.8.2",
-            "onnxruntime-gpu==1.24.3",
-        ])
+        self.pip_install(
+            [
+                "opencv-python==4.13.0.92",
+                "numpy==2.4.3",
+                "kornia==0.8.2",
+                "onnxruntime-gpu==1.24.3",
+            ]
+        )
         # Install SAM (Segment Anything Model) from Meta
         self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
         self.save_local_version("sam-installed")
@@ -861,8 +998,13 @@ class VR180EngineDep(PipEngine):
             return False
         try:
             result = subprocess.run(
-                [str(self.python_bin), "-c", "import cv2, torch; from segment_anything import sam_model_registry"],
-                capture_output=True, timeout=10
+                [
+                    str(self.python_bin),
+                    "-c",
+                    "import cv2, torch; from segment_anything import sam_model_registry",
+                ],
+                capture_output=True,
+                timeout=10,
             )
             return result.returncode == 0
         except Exception:
@@ -872,10 +1014,12 @@ class VR180EngineDep(PipEngine):
 def uninstall_vr180():
     return VR180EngineDep().uninstall()
 
+
 def install_vr180():
     dep = VR180EngineDep()
     dep.install()
     return dep.is_installed()
+
 
 def get_venv_vr180_python():
     """Returns path to python executable in .venv_vr180"""
@@ -902,6 +1046,7 @@ def main():
     check_only = "--check" in sys.argv
     startup = "--startup" in sys.argv
     manager.main_install(check_only=check_only, startup=startup)
+
 
 if __name__ == "__main__":
     main()
