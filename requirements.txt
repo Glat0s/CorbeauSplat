@@ -1,19 +1,24 @@
-PyQt6
-requests
-urllib3<2
-numpy<2
-send2trash
-opencv-python
+PyQt6==6.10.2
+requests==2.32.5
+urllib3==2.6.3
+numpy==2.4.3
+send2trash==2.1.0
+opencv-python==4.13.0.92
 
-# Upscale Dependencies (Dynamic but listed for reference/locking if needed)
-basicsr
-facexlib
-gfpgan
-realesrgan
+# Upscale Dependencies (managed by setup_dependencies.py for the correct venv)
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+realesrgan==0.3.0
+kornia==0.8.2
+onnxruntime-gpu==1.24.3
 
 # VR 180 / Segmentation
-# PyTorch with CUDA 12.4 (closest available for CUDA 12.9 on Windows).
-# Install manually for CUDA 12.9 support:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-# Or let the setup script handle it automatically.
-# segment-anything is installed via the VR180 setup (pip install git+https://github.com/facebookresearch/segment-anything.git)
+# PyTorch with CUDA 12.9 (torch 2.8.0 + torchvision 0.23.0).
+# Install manually:
+#   pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu129
+# Or let setup_dependencies.py handle it automatically.
+# segment-anything is installed via the VR180 setup:
+#   pip install git+https://github.com/facebookresearch/segment-anything.git
+# triton-windows (torch.compile on Windows):
+#   pip install triton-windows==3.6.0.post26

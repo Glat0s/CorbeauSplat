@@ -813,15 +813,15 @@ class UpscaleEngineDep(PipEngine):
         return UpscaleEngine().is_installed()
 
     def install(self):
-        # PyTorch with CUDA 12.1 wheels (newest stable that supports CUDA 12.x)
+        # torch 2.8.0 / torchvision 0.23.0 — pinned pair for reproducibility
         if sys.platform == "win32":
             self.pip_install([
-                "torch", "torchvision",
+                "torch==2.8.0", "torchvision==0.23.0",
                 "--index-url", "https://download.pytorch.org/whl/cu129"
             ])
         else:
-            self.pip_install(["torch", "torchvision"])
-        pkgs = ["realesrgan", "kornia", "onnxruntime-gpu"]
+            self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
+        pkgs = ["realesrgan==0.3.0", "kornia==0.8.2", "onnxruntime-gpu==1.24.3"]
         print(f"Installing/Updating: {', '.join(pkgs)}...")
         self.pip_install(pkgs)
 
@@ -835,17 +835,22 @@ class VR180EngineDep(PipEngine):
 
     def install(self):
         self.create_venv()
-        # PyTorch with CUDA 12.1 wheels (newest stable; compatible with CUDA 12.x)
+        # torch 2.8.0 / torchvision 0.23.0 — pinned pair for reproducibility
         if sys.platform == "win32":
             self.pip_install([
-                "torch", "torchvision",
+                "torch==2.8.0", "torchvision==0.23.0",
                 "--index-url", "https://download.pytorch.org/whl/cu129"
             ])
             # triton-windows enables torch.compile on Windows
-            self.pip_install(["triton-windows"])
+            self.pip_install(["triton-windows==3.6.0.post26"])
         else:
-            self.pip_install(["torch", "torchvision"])
-        self.pip_install(["opencv-python", "numpy<2", "kornia", "onnxruntime-gpu"])
+            self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
+        self.pip_install([
+            "opencv-python==4.13.0.92",
+            "numpy==2.4.3",
+            "kornia==0.8.2",
+            "onnxruntime-gpu==1.24.3",
+        ])
         # Install SAM (Segment Anything Model) from Meta
         self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
         self.save_local_version("sam-installed")

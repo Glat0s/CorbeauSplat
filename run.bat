@@ -102,21 +102,21 @@ echo Dependencies synchronized.
 "%PYTHON_CMD%" -c "import PyQt6" >nul 2>&1
 if errorlevel 1 (
     echo Installing PyQt6...
-    "%PYTHON_CMD%" -m pip install PyQt6
+    "%PYTHON_CMD%" -m pip install PyQt6==6.10.2
 )
 
 :: send2trash check
 "%PYTHON_CMD%" -c "import send2trash" >nul 2>&1
 if errorlevel 1 (
     echo Installing send2trash...
-    "%PYTHON_CMD%" -m pip install send2trash
+    "%PYTHON_CMD%" -m pip install send2trash==2.1.0
 )
 
 :: opencv check
 "%PYTHON_CMD%" -c "import cv2" >nul 2>&1
 if errorlevel 1 (
     echo Installing opencv-python...
-    "%PYTHON_CMD%" -m pip install opencv-python
+    "%PYTHON_CMD%" -m pip install opencv-python==4.13.0.92
 )
 
 :: ============================================================
