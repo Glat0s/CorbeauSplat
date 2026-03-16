@@ -90,11 +90,11 @@ class UpscaleTab(QWidget):
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(
             [
-                "Safe / MacBook Air (Defaut)",
-                "Qualite Max",
-                "Vitesse Max (High VRAM)",
-                "Ultimate (Ultra VRAM)",
-                "Personnalise",
+                tr("upscale_profile_safe"),
+                tr("upscale_profile_quality"),
+                tr("upscale_profile_speed"),
+                tr("upscale_profile_ultimate"),
+                tr("upscale_profile_custom"),
             ]
         )
         self.profile_combo.setToolTip(tr("upscale_tip_profile"))
@@ -266,8 +266,8 @@ class UpscaleTab(QWidget):
             if not self.engine.is_installed():
                 reply = QMessageBox.question(
                     self,
-                    "Installation Requise",
-                    "Le module Real-ESRGAN doit être installé (~50MB + dépendances Torch).\nContinuer ?",
+                    tr("upscale_install_required"),
+                    tr("upscale_install_confirm"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
 
@@ -281,8 +281,8 @@ class UpscaleTab(QWidget):
             # Deactivation requested
             reply = QMessageBox.question(
                 self,
-                "Désactivation",
-                "Voulez-vous désinstaller le module Real-ESRGAN pour libérer de l'espace ?\n(Les modèles seront supprimés)",
+                tr("upscale_deactivate_title"),
+                tr("upscale_deactivate_msg"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
@@ -305,7 +305,7 @@ class UpscaleTab(QWidget):
                 self.settings_group.setEnabled(False)
 
     def install_deps(self):
-        progress = QProgressDialog("Installation de Real-ESRGAN...", "Annuler", 0, 0, self)
+        progress = QProgressDialog(tr("upscale_installing_progress"), tr("btn_cancel"), 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.show()
         QApplication.processEvents()
@@ -327,22 +327,22 @@ class UpscaleTab(QWidget):
             success = install_upscale()
 
             if success:
-                QMessageBox.information(self, tr("msg_success"), "Installation terminée.")
+                QMessageBox.information(self, tr("msg_success"), tr("upscale_install_done"))
                 self.settings_group.setEnabled(True)
                 self.check_model_status()
             else:
-                QMessageBox.critical(self, tr("msg_error"), "Echec de l'installation.")
+                QMessageBox.critical(self, tr("msg_error"), tr("upscale_install_failed"))
                 self.chk_activate.setChecked(False)
                 self.settings_group.setEnabled(False)
 
         except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), f"Erreur: {e}")
+            QMessageBox.critical(self, tr("msg_error"), tr("err_delete_failed", e))
             self.chk_activate.setChecked(False)
         finally:
             progress.close()
 
     def uninstall_deps(self):
-        progress = QProgressDialog("Désinstallation de Real-ESRGAN...", None, 0, 0, self)
+        progress = QProgressDialog(tr("upscale_uninstalling_progress"), None, 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.show()
         QApplication.processEvents()
@@ -350,11 +350,11 @@ class UpscaleTab(QWidget):
         try:
             success = uninstall_upscale()
             if success:
-                QMessageBox.information(self, "Succès", "Module désinstallé.")
+                QMessageBox.information(self, tr("msg_success"), tr("upscale_uninstall_done"))
                 self.settings_group.setEnabled(False)
                 self.status_label.setText(tr("upscale_status_not_installed"))
         except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), f"Erreur: {e}")
+            QMessageBox.critical(self, tr("msg_error"), f"Error: {e}")
         finally:
             progress.close()
 

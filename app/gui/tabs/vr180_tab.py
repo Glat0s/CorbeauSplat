@@ -9,21 +9,32 @@ Provides controls for:
   - SAM (Segment Anything) optional refinement
   - SAM checkpoint download / path
 """
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QRadioButton, QButtonGroup, QCheckBox,
-    QDoubleSpinBox, QSpinBox, QComboBox, QProgressBar,
-    QMessageBox, QFileDialog,
-)
-from PyQt6.QtCore import pyqtSignal, QThread
 
-from app.core.i18n import tr, add_language_observer
-from app.gui.widgets.drop_line_edit import DropLineEdit
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.i18n import add_language_observer, tr
 from app.gui.widgets.dialog_utils import get_open_file_name
+from app.gui.widgets.drop_line_edit import DropLineEdit
 
 
 class SAMDownloadWorker(QThread):
     """Downloads the SAM checkpoint in a background thread."""
+
     progress_signal = pyqtSignal(int)
     finished_signal = pyqtSignal(bool, str)
 
@@ -86,14 +97,30 @@ class VR180Tab(QWidget):
         layout.addWidget(self.lbl_header)
 
         self.lbl_desc = QLabel(
-            tr("vr180_desc",
-               "Process VR 180 side-by-side or top-bottom green-screen footage.\n"
-               "Extracts one eye, removes the green background with chroma-key, "
-               "and optionally refines the person mask with SAM.")
+            tr(
+                "vr180_desc",
+                "Process VR 180 side-by-side or top-bottom green-screen footage.\n"
+                "Extracts one eye, removes the green background with chroma-key, "
+                "and optionally refines the person mask with SAM.",
+            )
         )
         self.lbl_desc.setWordWrap(True)
         self.lbl_desc.setStyleSheet("color: #888; margin-bottom: 12px;")
         layout.addWidget(self.lbl_desc)
+
+        # Workflow note
+        lbl_note = QLabel(
+            "Tip: This tab is a pre-processing tool — run it <i>before</i> the main pipeline "
+            "(Steps 1-3). Select <b>VR 180 Green Screen (SAM)</b> as mode in Step 1 · Source, "
+            "then use this tab to configure and run chroma-key extraction."
+        )
+        lbl_note.setWordWrap(True)
+        lbl_note.setStyleSheet(
+            "background-color: #1a3a1a; color: #7ec87e; "
+            "border: 1px solid #2a6a2a; border-radius: 6px; "
+            "padding: 8px 12px; font-size: 11px; margin-bottom: 8px;"
+        )
+        layout.addWidget(lbl_note)
 
         # ---- VR Format ----
         grp_format = QGroupBox(tr("vr180_grp_format", "VR 180 Format"))
@@ -184,9 +211,11 @@ class VR180Tab(QWidget):
             tr("vr180_check_sam", "Enable SAM (Segment Anything) refinement")
         )
         self.check_use_sam.setToolTip(
-            tr("vr180_tip_sam",
-               "Uses Meta's Segment Anything Model to produce a cleaner person mask.\n"
-               "Requires the SAM checkpoint file and takes longer to process.")
+            tr(
+                "vr180_tip_sam",
+                "Uses Meta's Segment Anything Model to produce a cleaner person mask.\n"
+                "Requires the SAM checkpoint file and takes longer to process.",
+            )
         )
         self.check_use_sam.toggled.connect(self._update_sam_group)
         sam_layout.addWidget(self.check_use_sam)
@@ -198,7 +227,12 @@ class VR180Tab(QWidget):
         self.spin_batch = QSpinBox()
         self.spin_batch.setRange(1, 64)
         self.spin_batch.setValue(8)
-        self.spin_batch.setToolTip(tr("vr180_tip_batch", "Number of frames processed per GPU batch. Higher = faster but more VRAM."))
+        self.spin_batch.setToolTip(
+            tr(
+                "vr180_tip_batch",
+                "Number of frames processed per GPU batch. Higher = faster but more VRAM.",
+            )
+        )
         batch_row.addWidget(self.spin_batch)
         batch_row.addStretch()
         sam_layout.addLayout(batch_row)
@@ -255,10 +289,14 @@ class VR180Tab(QWidget):
 
         # Keep references to SAM-dependent widgets for enable/disable
         self._sam_widgets = [
-            self.lbl_sam_model, self.combo_sam_model,
-            self.lbl_ckpt, self.edit_ckpt, self.btn_browse_ckpt,
+            self.lbl_sam_model,
+            self.combo_sam_model,
+            self.lbl_ckpt,
+            self.edit_ckpt,
+            self.btn_browse_ckpt,
             self.btn_download_sam,
-            self.lbl_device, self.combo_device,
+            self.lbl_device,
+            self.combo_device,
         ]
         self._update_sam_group(False)
 
@@ -282,7 +320,7 @@ class VR180Tab(QWidget):
 
     def _download_sam(self):
         model_type = self.combo_sam_model.currentData()
-        from pathlib import Path
+
         from app.core.system import resolve_project_root
 
         dest = resolve_project_root() / "engines" / f"sam_{model_type}.pth"
@@ -309,11 +347,17 @@ class VR180Tab(QWidget):
         self.sam_progress.setVisible(False)
         if success:
             self.edit_ckpt.setText(message)
-            QMessageBox.information(self, tr("msg_success", "OK"),
-                                    tr("vr180_download_ok", f"SAM checkpoint downloaded:\n{message}"))
+            QMessageBox.information(
+                self,
+                tr("msg_success", "OK"),
+                tr("vr180_download_ok", f"SAM checkpoint downloaded:\n{message}"),
+            )
         else:
-            QMessageBox.critical(self, tr("msg_error", "Error"),
-                                 tr("vr180_download_err", f"Download failed:\n{message}"))
+            QMessageBox.critical(
+                self,
+                tr("msg_error", "Error"),
+                tr("vr180_download_err", f"Download failed:\n{message}"),
+            )
 
     # ------------------------------------------------------------------
     # State management
@@ -381,10 +425,12 @@ class VR180Tab(QWidget):
     def retranslate_ui(self):
         self.lbl_header.setText(tr("vr180_header", "VR 180 Green Screen Segmentation"))
         self.lbl_desc.setText(
-            tr("vr180_desc",
-               "Process VR 180 side-by-side or top-bottom green-screen footage.\n"
-               "Extracts one eye, removes the green background with chroma-key, "
-               "and optionally refines the person mask with SAM.")
+            tr(
+                "vr180_desc",
+                "Process VR 180 side-by-side or top-bottom green-screen footage.\n"
+                "Extracts one eye, removes the green background with chroma-key, "
+                "and optionally refines the person mask with SAM.",
+            )
         )
         self.radio_sbs.setText(tr("vr180_fmt_sbs", "Side-by-Side (SBS)"))
         self.radio_tb.setText(tr("vr180_fmt_tb", "Top-Bottom (TB)"))
@@ -394,7 +440,9 @@ class VR180Tab(QWidget):
         self.lbl_hue_range.setText(tr("vr180_lbl_hue_range", "Hue tolerance (±):"))
         self.lbl_sat.setText(tr("vr180_lbl_sat", "Min saturation (0–255):"))
         self.lbl_val.setText(tr("vr180_lbl_val", "Min value/brightness (0–255):"))
-        self.check_use_sam.setText(tr("vr180_check_sam", "Enable SAM (Segment Anything) refinement"))
+        self.check_use_sam.setText(
+            tr("vr180_check_sam", "Enable SAM (Segment Anything) refinement")
+        )
         self.lbl_sam_model.setText(tr("vr180_lbl_sam_model", "SAM model:"))
         self.lbl_ckpt.setText(tr("vr180_lbl_ckpt", "Checkpoint (.pth):"))
         self.btn_browse_ckpt.setText(tr("btn_browse", "Browse"))

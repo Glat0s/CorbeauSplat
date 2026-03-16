@@ -73,20 +73,20 @@ class ColmapGUI(QMainWindow):
         self.superplat_tab = SuperSplatTab()
         self.tabs.addTab(self.superplat_tab, tr("tab_supersplat"))
 
+        self.vr180_tab = VR180Tab()
+        self.tabs.addTab(self.vr180_tab, tr("tab_vr180", "VR 180"))
+
         self.upscale_tab = UpscaleTab()
         self.tabs.addTab(self.upscale_tab, tr("tab_upscale"))
-
-        self.sharp_tab = SharpTab()
-        self.tabs.addTab(self.sharp_tab, tr("tab_sharp"))
-
-        self.four_dgs_tab = FourDGSTab()
-        self.tabs.addTab(self.four_dgs_tab, tr("tab_four_dgs"))
 
         self.extractor_360_tab = Extractor360Tab()
         self.tabs.addTab(self.extractor_360_tab, tr("tab_360"))
 
-        self.vr180_tab = VR180Tab()
-        self.tabs.addTab(self.vr180_tab, tr("tab_vr180", "VR 180"))
+        self.four_dgs_tab = FourDGSTab()
+        self.tabs.addTab(self.four_dgs_tab, tr("tab_four_dgs"))
+
+        self.sharp_tab = SharpTab()
+        self.tabs.addTab(self.sharp_tab, tr("tab_sharp"))
 
         self.logs_tab = LogsTab()
         self.tabs.addTab(self.logs_tab, tr("tab_logs"))
@@ -125,11 +125,11 @@ class ColmapGUI(QMainWindow):
             self.params_tab: tr("tab_params"),
             self.brush_tab: tr("tab_brush"),
             self.superplat_tab: tr("tab_supersplat"),
-            self.upscale_tab: tr("tab_upscale"),
-            self.sharp_tab: tr("tab_sharp"),
-            self.four_dgs_tab: tr("tab_four_dgs"),
-            self.extractor_360_tab: tr("tab_360"),
             self.vr180_tab: tr("tab_vr180", "VR 180"),
+            self.upscale_tab: tr("tab_upscale"),
+            self.extractor_360_tab: tr("tab_360"),
+            self.four_dgs_tab: tr("tab_four_dgs"),
+            self.sharp_tab: tr("tab_sharp"),
             self.logs_tab: tr("tab_logs"),
         }
 
@@ -142,27 +142,26 @@ class ColmapGUI(QMainWindow):
         self.apply_tab_styling()
 
     def apply_tab_styling(self):
-        """Applies a slightly lighter/muted gray color to secondary/utility tabs"""
-        secondary_tabs = [
-            self.config_tab,
-            self.upscale_tab,
-            self.sharp_tab,
-            self.four_dgs_tab,
-            self.extractor_360_tab,
+        """Color-code tabs: bright for workflow steps, muted for optional tools."""
+        tool_tabs = [
             self.vr180_tab,
-            self.logs_tab,
+            self.upscale_tab,
+            self.extractor_360_tab,
+            self.four_dgs_tab,
+            self.sharp_tab,
         ]
 
         tab_bar = self.tabs.tabBar()
-        # Light gray text for secondary/option tabs
-        secondary_color = QColor("#aaaaaa")
+        tool_color = QColor("#aaaaaa")  # muted gray for optional tools
+        log_color = QColor("#cccccc")  # slightly bright for logs
 
         for i in range(self.tabs.count()):
             widget = self.tabs.widget(i)
-            if widget in secondary_tabs:
-                tab_bar.setTabTextColor(i, secondary_color)
+            if widget in tool_tabs:
+                tab_bar.setTabTextColor(i, tool_color)
+            elif widget is self.logs_tab:
+                tab_bar.setTabTextColor(i, log_color)
             else:
-                # Keep main tabs (Params, Brush, SuperSplat) in bright white
                 tab_bar.setTabTextColor(i, Qt.GlobalColor.white)
 
     def get_current_params(self):
@@ -386,7 +385,7 @@ class ColmapGUI(QMainWindow):
             reply = QMessageBox.question(
                 self,
                 tr("msg_warning"),
-                f"Voulez-vous mettre a la corbeille le contenu du dossier :\n\n{target_path}",
+                tr("confirm_delete_folder", str(target_path)),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
 
@@ -397,11 +396,9 @@ class ColmapGUI(QMainWindow):
                     self.logs_tab.append_log(f"Dataset deleted: {target_path}")
                     QMessageBox.information(self, tr("msg_success"), msg)
                 else:
-                    QMessageBox.critical(self, tr("msg_error"), f"Erreur: {msg}")
+                    QMessageBox.critical(self, tr("msg_error"), tr("err_delete_failed", msg))
             except Exception as e:
-                QMessageBox.critical(
-                    self, tr("msg_error"), f"Impossible de supprimer le dataset:\n{str(e)}"
-                )
+                QMessageBox.critical(self, tr("msg_error"), tr("err_delete_generic", str(e)))
 
     def train_brush(self, force_auto=False):
         """Lance l'entrainement Brush"""
@@ -412,16 +409,12 @@ class ColmapGUI(QMainWindow):
             input_path_str = brush_params.get("input_path")
 
             if not input_path_str:
-                QMessageBox.critical(
-                    self, tr("msg_error"), "Veuillez selectionner un dossier Dataset valide."
-                )
+                QMessageBox.critical(self, tr("msg_error"), tr("err_invalid_dataset"))
                 return
 
             input_path = Path(input_path_str)
             if not input_path.exists():
-                QMessageBox.critical(
-                    self, tr("msg_error"), "Veuillez selectionner un dossier Dataset valide."
-                )
+                QMessageBox.critical(self, tr("msg_error"), tr("err_invalid_dataset"))
                 return
 
             # Use custom output path if provided, otherwise default to input/checkpoints
@@ -435,16 +428,12 @@ class ColmapGUI(QMainWindow):
             project_name = self.config_tab.get_project_name()
 
             if not colmap_out_root_str:
-                QMessageBox.critical(
-                    self, tr("msg_error"), "Le dossier de sortie racine n'existe pas."
-                )
+                QMessageBox.critical(self, tr("msg_error"), tr("err_output_missing"))
                 return
 
             colmap_out_root = Path(colmap_out_root_str)
             if not colmap_out_root.exists():
-                QMessageBox.critical(
-                    self, tr("msg_error"), "Le dossier de sortie racine n'existe pas."
-                )
+                QMessageBox.critical(self, tr("msg_error"), tr("err_output_missing"))
                 return
 
             # Le dataset est dans root/project_name
@@ -454,7 +443,7 @@ class ColmapGUI(QMainWindow):
                 QMessageBox.critical(
                     self,
                     tr("msg_error"),
-                    f"Le dossier du projet n'existe pas:\n{dataset_path}\nAvez-vous lancé la création du dataset ?",
+                    tr("err_project_missing", str(dataset_path)),
                 )
                 return
 
@@ -480,7 +469,7 @@ class ColmapGUI(QMainWindow):
         """Arrête Brush"""
         if hasattr(self, "brush_worker") and self.brush_worker and self.brush_worker.isRunning():
             self.brush_worker.stop()
-            self.logs_tab.append_log("Arrêt de Brush demandé...")
+            self.logs_tab.append_log(tr("msg_stop_brush"))
 
     def on_brush_finished(self, success, message):
         """Fin entrainement Brush"""
@@ -500,28 +489,22 @@ class ColmapGUI(QMainWindow):
         output_path_str = params.get("output_path")
 
         if not input_path_str:
-            QMessageBox.critical(
-                self, tr("msg_error"), "Veuillez selectionner un dossier d'images valide."
-            )
+            QMessageBox.critical(self, tr("msg_error"), tr("err_invalid_dataset"))
             return
 
         input_path = Path(input_path_str)
         if not input_path.exists():
-            QMessageBox.critical(
-                self, tr("msg_error"), "Veuillez selectionner un dossier d'images valide."
-            )
+            QMessageBox.critical(self, tr("msg_error"), tr("err_invalid_dataset"))
             return
 
         if not output_path_str:
-            QMessageBox.critical(
-                self, tr("msg_error"), "Veuillez selectionner un dossier de sortie."
-            )
+            QMessageBox.critical(self, tr("msg_error"), tr("err_output_missing"))
             return
 
         output_path = Path(output_path_str)
 
         self.sharp_tab.set_processing_state(True)
-        self.logs_tab.append_log("--- Lancement Apple ML Sharp ---")
+        self.logs_tab.append_log(tr("msg_starting_sharp"))
         self.logs_tab.append_log(f"Input: {input_path}")
         self.logs_tab.append_log(f"Output: {output_path}")
 
@@ -536,7 +519,7 @@ class ColmapGUI(QMainWindow):
         """Arrête Sharp"""
         if self.sharp_worker and self.sharp_worker.isRunning():
             self.sharp_worker.stop()
-            self.logs_tab.append_log("Arrêt de Sharp demandé...")
+            self.logs_tab.append_log(tr("msg_stop_sharp"))
 
     def on_sharp_finished(self, success, message):
         """Fin Sharp"""

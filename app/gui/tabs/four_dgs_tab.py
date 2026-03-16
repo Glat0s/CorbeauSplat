@@ -1,20 +1,35 @@
-
-from pathlib import Path
+import subprocess
 import sys
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox,
-    QFormLayout, QCheckBox, QSpinBox, QMessageBox, QTextEdit, QApplication, QProgressDialog
-)
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
-from app.core.i18n import tr, add_language_observer
-from app.gui.widgets.drop_line_edit import DropLineEdit
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.i18n import add_language_observer, tr
 from app.gui.widgets.dialog_utils import get_existing_directory
+from app.gui.widgets.drop_line_edit import DropLineEdit
 from app.gui.workers import FourDGSWorker
+
 
 class FourDGSTab(QWidget):
     """
     Tab for 4DGS Dataset Preparation.
     """
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker = None
@@ -28,7 +43,7 @@ class FourDGSTab(QWidget):
         self.lbl_header = QLabel(tr("four_dgs_header"))
         self.lbl_header.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
         layout.addWidget(self.lbl_header)
-        
+
         self.lbl_desc = QLabel(tr("four_dgs_desc"))
         self.lbl_desc.setWordWrap(True)
         self.lbl_desc.setStyleSheet("color: #aaa; margin-bottom: 10px;")
@@ -82,35 +97,38 @@ class FourDGSTab(QWidget):
         self.btn_run.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold;")
         self.btn_run.clicked.connect(self.run_process)
         btn_layout.addWidget(self.btn_run)
-        
+
         self.btn_stop = QPushButton(tr("four_dgs_btn_stop"))
         self.btn_stop.setFixedHeight(40)
         self.btn_stop.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold;")
         self.btn_stop.clicked.connect(self.stop_process)
         self.btn_stop.setEnabled(False)
         btn_layout.addWidget(self.btn_stop)
-        
+
         self.btn_colmap = QPushButton(tr("four_dgs_btn_colmap"))
         self.btn_colmap.setFixedHeight(40)
         self.btn_colmap.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
         self.btn_colmap.clicked.connect(self.run_colmap_only)
         btn_layout.addWidget(self.btn_colmap)
-        
+
         layout.addLayout(btn_layout)
 
         # Logs
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setStyleSheet("background-color: #222; color: #eee; font-family: monospace; font-size: 11px;")
+        self.log_view.setStyleSheet(
+            "background-color: #222; color: #eee; font-family: monospace; font-size: 11px;"
+        )
         layout.addWidget(self.log_view)
 
         # Initial State
         self.controls_group.setEnabled(False)
         self.btn_run.setEnabled(False)
-        
+
         # Check if already active/installed (Check persistence or file existence)
         # We check simply if 'ns-process-data' is in path, implying activation
         import shutil
+
         if shutil.which("ns-process-data"):
             self.chk_activate.setChecked(True)
             self.controls_group.setEnabled(True)
@@ -120,73 +138,74 @@ class FourDGSTab(QWidget):
         if self.chk_activate.isChecked():
             # Check dependency
             import shutil
+
             if not shutil.which("ns-process-data"):
                 reply = QMessageBox.question(
-                    self, 
-                    "Installation Requise", 
+                    self,
+                    tr("four_dgs_install_title"),
                     tr("msg_install_nerf"),
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 )
-                
+
                 if reply == QMessageBox.StandardButton.Yes:
                     self.install_dependencies()
                 else:
                     self.chk_activate.setChecked(False)
             else:
-                 self.controls_group.setEnabled(True)
-                 self.btn_run.setEnabled(True)
+                self.controls_group.setEnabled(True)
+                self.btn_run.setEnabled(True)
         else:
             self.controls_group.setEnabled(False)
             self.btn_run.setEnabled(False)
 
     def install_dependencies(self):
         # Install nerfstudio pip package
-        progress = QProgressDialog("Installation de Nerfstudio...", "Annuler", 0, 0, self)
+        progress = QProgressDialog(tr("four_dgs_install_progress"), tr("btn_cancel"), 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.show()
         QApplication.processEvents()
-        
+
         try:
             # We use subprocess to call pip
             # Make sure we use the current python executable
             cmd = [sys.executable, "-m", "pip", "install", "nerfstudio"]
             subprocess.check_call(cmd)
-            
-            QMessageBox.information(self, tr("msg_success"), "Installation terminée. Veuillez redémarrer l'application.")
+
+            QMessageBox.information(self, tr("msg_success"), tr("four_dgs_install_done"))
             self.controls_group.setEnabled(True)
             self.btn_run.setEnabled(True)
         except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), f"Erreur installation: {e}")
+            QMessageBox.critical(self, tr("msg_error"), tr("four_dgs_install_err", e))
             self.chk_activate.setChecked(False)
         finally:
             progress.close()
 
     def browse_input(self):
-        d = get_existing_directory(self, "Choisir dossier Vidéos")
+        d = get_existing_directory(self, tr("four_dgs_dlg_input"))
         if d:
             self.input_edit.setText(d)
 
     def browse_output(self):
-        d = get_existing_directory(self, "Choisir destination")
+        d = get_existing_directory(self, tr("four_dgs_dlg_output"))
         if d:
             self.output_edit.setText(d)
 
     def run_process(self):
         src = self.input_edit.text().strip()
         dst = self.output_edit.text().strip()
-        
+
         if not src or not dst:
-            QMessageBox.warning(self, tr("msg_warning"), "Veuillez sélectionner les dossiers source et destination.")
+            QMessageBox.warning(self, tr("msg_warning"), tr("four_dgs_err_paths"))
             return
 
         if not Path(src).exists():
-             QMessageBox.warning(self, tr("msg_warning"), "Le dossier source n'existe pas.")
-             return
-             
+            QMessageBox.warning(self, tr("msg_warning"), tr("four_dgs_err_src_missing"))
+            return
+
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.log_view.clear()
-        
+
         self.worker = FourDGSWorker(src, dst, self.fps_spin.value())
         self.worker.log_signal.connect(self.append_log)
         self.worker.finished_signal.connect(self.on_process_finished)
@@ -195,23 +214,25 @@ class FourDGSTab(QWidget):
     def run_colmap_only(self):
         dst = self.output_edit.text().strip()
         if not dst:
-            QMessageBox.warning(self, tr("msg_warning"), "Veuillez sélectionner un dossier destination.")
+            QMessageBox.warning(self, tr("msg_warning"), tr("four_dgs_err_dst"))
             return
-            
+
         if not Path(dst).exists():
-             QMessageBox.warning(self, tr("msg_warning"), "Le dossier destination n'existe pas.")
-             return
-             
+            QMessageBox.warning(self, tr("msg_warning"), tr("four_dgs_err_dst_missing"))
+            return
+
         self.btn_run.setEnabled(False)
         self.btn_colmap.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.log_view.clear()
-        
+
         self.append_log(tr("four_dgs_msg_colmap_start", dst))
-        
+
         # Use existing worker but with a flag? Or just call engine directly if synchronous?
         # Better use worker to avoid blocking.
-        self.worker = FourDGSWorker(None, dst, self.fps_spin.value()) # None for videos_dir signals colmap only
+        self.worker = FourDGSWorker(
+            None, dst, self.fps_spin.value()
+        )  # None for videos_dir signals colmap only
         self.worker.log_signal.connect(self.append_log)
         self.worker.finished_signal.connect(self.on_process_finished)
         self.worker.start()
@@ -220,7 +241,7 @@ class FourDGSTab(QWidget):
         if self.worker:
             self.worker.stop()
             self.btn_stop.setEnabled(False)
-            self.append_log(">>> Arrêt demandé...")
+            self.append_log(tr("four_dgs_stop_requested"))
 
     def on_process_finished(self, success, message):
         self.btn_run.setEnabled(True)
@@ -229,7 +250,7 @@ class FourDGSTab(QWidget):
         if success:
             QMessageBox.information(self, tr("msg_success"), message)
         else:
-             if "Arrêté" not in message:
+            if "Stopped" not in message:
                 QMessageBox.critical(self, tr("msg_error"), message)
         self.worker = None
 
@@ -244,21 +265,25 @@ class FourDGSTab(QWidget):
             "active": self.chk_activate.isChecked(),
             "input_path": self.input_edit.text(),
             "output_path": self.output_edit.text(),
-            "fps": self.fps_spin.value()
+            "fps": self.fps_spin.value(),
         }
 
     def set_params(self, params):
-        if not params: return
+        if not params:
+            return
         if "active" in params:
             self.chk_activate.setChecked(params["active"])
             self.on_toggle_activation()
-        if "input_path" in params: self.input_edit.setText(params["input_path"])
-        if "output_path" in params: self.output_edit.setText(params["output_path"])
-        if "fps" in params: self.fps_spin.setValue(params["fps"])
+        if "input_path" in params:
+            self.input_edit.setText(params["input_path"])
+        if "output_path" in params:
+            self.output_edit.setText(params["output_path"])
+        if "fps" in params:
+            self.fps_spin.setValue(params["fps"])
 
     def get_state(self):
         return self.get_params()
-        
+
     def set_state(self, state):
         self.set_params(state)
 
