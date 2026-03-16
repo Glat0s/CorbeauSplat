@@ -73,10 +73,9 @@ class OptimizedRealESRGAN:
 
     def load(self, model_path: str | Path) -> bool:
         """Load model weights; returns True on success."""
-        # --- Check for preferred ONNX model first ---
-        external_onnx = Path(
-            r"D:\VisoMaster - fusion\VisoMaster-fusion-git-dev\model_assets\RealESRGAN_x4plus.fp16.onnx"
-        )
+        # --- Check for preferred ONNX model in the app weights directory ---
+        weights_dir = Path(__file__).resolve().parent.parent / "weights"
+        external_onnx = weights_dir / "RealESRGAN_x4plus.fp16.onnx"
         if external_onnx.exists():
             logger.info("Preferred ESRGAN ONNX model found: %s", external_onnx)
             if self.build_trt_session(external_onnx):

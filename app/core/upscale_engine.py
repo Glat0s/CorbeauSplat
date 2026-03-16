@@ -89,6 +89,7 @@ class UpscaleEngine(BaseEngine):
                 tile=tile,
                 tile_pad=10,
                 device=self.device,
+                use_fp16=half,
             )
 
             # The .load() method checks for the preferred external ONNX first
