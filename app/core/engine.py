@@ -514,6 +514,13 @@ class ColmapEngine(BaseEngine):
             '--SiftExtraction.estimate_affine_shape', '1' if self.params.estimate_affine_shape else '0',
             '--SiftExtraction.domain_size_pooling', '1' if self.params.domain_size_pooling else '0',
         ]
+        use_gpu = (
+            is_windows()
+            and getattr(self.params, 'use_gpu_sift', True)
+            and not getattr(self.params, 'force_cpu', False)
+        )
+        if use_gpu:
+            cmd.extend(['--SiftExtraction.use_gpu', '1', '--SiftExtraction.gpu_index', '0'])
         return self.run_command(cmd, "Extraction des features", status_prefix="Analyse")
 
     def feature_matching(self, database_path):
@@ -537,7 +544,15 @@ class ColmapEngine(BaseEngine):
                 '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
             ]
             description = "Matching Exhaustif"
-            
+
+        use_gpu = (
+            is_windows()
+            and getattr(self.params, 'use_gpu_matching', True)
+            and not getattr(self.params, 'force_cpu', False)
+        )
+        if use_gpu:
+            cmd.extend(['--SiftMatching.use_gpu', '1', '--SiftMatching.gpu_index', '0'])
+
         return self.run_command(cmd, description, status_prefix="Comparaison")
 
     def mapper(self, database_path, images_dir, sparse_dir):

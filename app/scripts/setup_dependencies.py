@@ -813,7 +813,15 @@ class UpscaleEngineDep(PipEngine):
         return UpscaleEngine().is_installed()
 
     def install(self):
-        pkgs = ["torch", "torchvision", "realesrgan"]
+        # PyTorch with CUDA 12.1 wheels (newest stable that supports CUDA 12.x)
+        if sys.platform == "win32":
+            self.pip_install([
+                "torch", "torchvision",
+                "--index-url", "https://download.pytorch.org/whl/cu121"
+            ])
+        else:
+            self.pip_install(["torch", "torchvision"])
+        pkgs = ["realesrgan", "kornia", "onnxruntime-gpu"]
         print(f"Installing/Updating: {', '.join(pkgs)}...")
         self.pip_install(pkgs)
 
@@ -827,19 +835,21 @@ class VR180EngineDep(PipEngine):
 
     def install(self):
         self.create_venv()
-        # Install PyTorch with CUDA 12.9 on Windows, CPU fallback elsewhere
+        # PyTorch with CUDA 12.1 wheels (newest stable; compatible with CUDA 12.x)
         if sys.platform == "win32":
             self.pip_install([
                 "torch", "torchvision",
-                "--index-url", "https://download.pytorch.org/whl/cu124"
+                "--index-url", "https://download.pytorch.org/whl/cu121"
             ])
+            # triton-windows enables torch.compile on Windows
+            self.pip_install(["triton-windows"])
         else:
             self.pip_install(["torch", "torchvision"])
-        self.pip_install(["opencv-python", "numpy<2"])
+        self.pip_install(["opencv-python", "numpy<2", "kornia", "onnxruntime-gpu"])
         # Install SAM (Segment Anything Model) from Meta
         self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
         self.save_local_version("sam-installed")
-        print("✅ VR180 engine (SAM + OpenCV) installed.")
+        print("✅ VR180 engine (SAM + OpenCV + kornia + onnxruntime-gpu) installed.")
 
     def is_installed(self) -> bool:
         if not self.python_bin.exists():

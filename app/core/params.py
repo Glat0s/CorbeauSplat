@@ -23,6 +23,8 @@ class ColmapParams:
     matcher_type: str = 'exhaustive' # exhaustive, sequential, vocab_tree
     undistort_images: bool = False
     use_glomap: bool = False
+    use_gpu_sift: bool = True
+    use_gpu_matching: bool = True
     
     def to_dict(self):
         return asdict(self)

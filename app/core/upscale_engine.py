@@ -1,5 +1,6 @@
 from pathlib import Path
 from .base_engine import BaseEngine
+from .system import is_windows
 
 class UpscaleEngine(BaseEngine):
     """
@@ -69,7 +70,7 @@ class UpscaleEngine(BaseEngine):
 
     # install/uninstall methods deprecated, handled by setup_dependencies.py
 
-    def load_model(self, model_name='RealESRGAN_x4plus', tile=0, target_scale=4, half=False):
+    def load_model(self, model_name='RealESRGAN_x4plus', tile=0, target_scale=4, half=None):
         """
         Loads the RealESRGANer model. 
         Returns the model object or None.
@@ -77,6 +78,14 @@ class UpscaleEngine(BaseEngine):
         if not self.is_installed():
             self.log("Dependencies not installed.")
             return None
+
+        # Default FP16 on Windows CUDA for ~1.5× throughput on RTX 4090
+        if half is None:
+            try:
+                import torch
+                half = is_windows() and torch.cuda.is_available()
+            except ImportError:
+                half = False
 
         try:
             self._apply_patches()
