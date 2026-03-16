@@ -354,26 +354,10 @@ class BrushEngineDep(EngineDependency):
                 print("❌ Release download failed. Check your connection.")
 
     def _install_from_release(self, version: str) -> bool:
-        import platform
-        import tarfile
         import urllib.request
         import zipfile
 
-        system = platform.system()
-        machine = platform.machine()
-
-        platform_suffix = None
-        if system == "Darwin" and machine == "arm64":
-            platform_suffix = "aarch64-apple-darwin.tar.xz"
-        elif system == "Windows" and machine == "AMD64":
-            platform_suffix = "x86_64-pc-windows-msvc.zip"
-        elif system == "Linux" and machine == "x86_64":
-            platform_suffix = "x86_64-unknown-linux-gnu.tar.xz"
-
-        if not platform_suffix:
-            print(f"⚠️ No pre-built release for {system}/{machine}.")
-            return False
-
+        platform_suffix = "x86_64-pc-windows-msvc.zip"
         release_url = f"https://github.com/ArthurBrussee/brush/releases/download/{version}/brush-app-{platform_suffix}"
         print(f"Downloading Brush {version} from {release_url}...")
 
@@ -390,12 +374,8 @@ class BrushEngineDep(EngineDependency):
         extract_dir = self.engines_dir / f"brush-extract-{version}"
         extract_dir.mkdir(exist_ok=True)
         try:
-            if archive_path.name.endswith(".zip"):
-                with zipfile.ZipFile(archive_path, "r") as zf:
-                    zf.extractall(extract_dir)  # nosec B202
-            else:
-                with tarfile.open(archive_path, "r:xz") as tf:
-                    tf.extractall(extract_dir)  # nosec B202
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(extract_dir)  # nosec B202
         except Exception as e:
             print(f"⚠️ Extraction failed: {e}")
             archive_path.unlink(missing_ok=True)
@@ -423,10 +403,6 @@ class BrushEngineDep(EngineDependency):
         dest = self.engines_dir / "brush"
         shutil.move(str(extracted_bin), str(dest))
         shutil.rmtree(str(extract_dir), ignore_errors=True)
-
-        if system != "Windows":
-            os.chmod(str(dest), 0o755)  # nosec B103
-
         self.save_local_version(version)
         print(f"✅ Brush {version} installed successfully from release binary.")
         return True

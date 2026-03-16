@@ -438,9 +438,7 @@ class ColmapEngine(BaseEngine):
             output_pattern = images_dir / "frame_%04d.jpg"
 
         cmd = [self.ffmpeg_bin]
-        if self.is_silicon:
-            cmd.extend(["-hwaccel", "videotoolbox"])
-        elif is_windows():
+        if is_windows():
             # CUDA hwaccel for decode only; software fps filter runs in CPU memory
             cmd.extend(["-hwaccel", "cuda"])
 
@@ -479,13 +477,8 @@ class ColmapEngine(BaseEngine):
         self.log(f"\n{'='*60}\n{description}\n{'='*60}")
 
         env = os.environ.copy()
-        if self.is_silicon:
-            env["OMP_NUM_THREADS"] = str(self.num_threads)
-            env["VECLIB_MAXIMUM_THREADS"] = str(self.num_threads)
-            env["OPENBLAS_NUM_THREADS"] = str(self.num_threads)
-        elif is_windows():
-            env["OMP_NUM_THREADS"] = str(self.num_threads)
-            env["OPENBLAS_NUM_THREADS"] = str(self.num_threads)
+        env["OMP_NUM_THREADS"] = str(self.num_threads)
+        env["OPENBLAS_NUM_THREADS"] = str(self.num_threads)
 
         def _colmap_parser(line_str):
             self.log(line_str)
@@ -523,9 +516,7 @@ class ColmapEngine(BaseEngine):
                 return False
 
         except FileNotFoundError:
-            install_hint = (
-                "winget install UB-Mannheim.COLMAP" if is_windows() else "brew install colmap"
-            )
+            install_hint = "Download COLMAP from https://github.com/colmap/colmap/releases"
             self.log(f"COLMAP not found. Install with: {install_hint}")
             return False
 
@@ -685,12 +676,7 @@ class ColmapEngine(BaseEngine):
             final_images_path = images_dir
             final_sparse_path = sparse_dir / "0"
 
-        if self.is_silicon:
-            optimized_for = "Apple Silicon"
-        elif is_windows():
-            optimized_for = "Windows/CUDA (RTX)"
-        else:
-            optimized_for = "x86_64"
+        optimized_for = "Windows/CUDA (RTX)"
 
         config = {
             "dataset_type": "colmap",

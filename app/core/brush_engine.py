@@ -45,10 +45,7 @@ class BrushEngine(BaseEngine):
         # Device handling via BaseEngine/system
         env = os.environ.copy()
         device = params.get("device", self.device)
-        if device == "mps":
-            env["WGPU_BACKEND"] = "metal"
-            env["WGPU_POWER_PREF"] = "high_performance"
-        elif device == "cuda":
+        if device == "cuda":
             # On Windows with NVIDIA RTX: prefer Vulkan for WGPU (best perf on RTX 4090)
             # DX12 is the fallback; Vulkan is explicitly preferred for CUDA workloads
             env["WGPU_BACKEND"] = "vulkan"
