@@ -9,11 +9,11 @@ Uses the VisoMaster custom Triton/CUDA-graph kernel path:
 Falls back to pure-PyTorch FP32 if Triton unavailable.
 Auto-downloads GFPGANv1.4.pth on first use.
 """
+
 from __future__ import annotations
 
 import logging
 import urllib.request
-import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -21,8 +21,9 @@ import numpy as np
 
 logger = logging.getLogger("gfpgan_engine")
 
-_GFPGAN_URL = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.4/GFPGANv1.4.pth"
-_GFPGAN_SHA256 = "e2cd4703ab14f4d01fd1383a8a8b2f4b5e9d2e1c3c2f1b4e0a9d8c7b6a5f4e3"  # approximate
+_GFPGAN_URL = (
+    "https://github.com/visomaster/visomaster-assets/releases/download/v0.1.0/GFPGANv1.4.onnx"
+)
 
 
 def _default_weights_dir() -> Path:
@@ -64,7 +65,9 @@ class GFPGANEngine:
         self._device = device
         self._use_fp16 = use_fp16 and device == "cuda"
         self._use_cuda_graph = use_cuda_graph and device == "cuda"
-        self._checkpoint = Path(checkpoint) if checkpoint else _default_weights_dir() / "GFPGANv1.4.pth"
+        self._checkpoint = (
+            Path(checkpoint) if checkpoint else _default_weights_dir() / "GFPGANv1.4.onnx"
+        )
         self._model = None
         self._runner = None  # CUDA-graph runner or plain model callable
         self._loaded = False
@@ -77,7 +80,7 @@ class GFPGANEngine:
         """Download GFPGANv1.4.pth if not present. Returns True on success."""
         if self._checkpoint.exists():
             return True
-        logger.info("Downloading GFPGANv1.4.pth (~348 MB)...")
+        logger.info("Downloading GFPGANv1.4.onnx from VisoMaster assets...")
         try:
             self._checkpoint.parent.mkdir(parents=True, exist_ok=True)
             urllib.request.urlretrieve(_GFPGAN_URL, str(self._checkpoint))
@@ -92,13 +95,12 @@ class GFPGANEngine:
         if checkpoint:
             self._checkpoint = Path(checkpoint)
 
-        if not self._checkpoint.exists():
-            if not self.download_weights():
-                return False
+        if not self._checkpoint.exists() and not self.download_weights():
+            return False
 
         try:
             import sys
-            import os
+
             # Make vendor available
             vendor_dir = Path(__file__).parent / "vendor"
             if str(vendor_dir) not in sys.path:
@@ -124,7 +126,11 @@ class GFPGANEngine:
                 self._runner = self._model
 
             self._loaded = True
-            logger.info("GFPGANEngine loaded (fp16=%s, cuda_graph=%s).", self._use_fp16, self._use_cuda_graph)
+            logger.info(
+                "GFPGANEngine loaded (fp16=%s, cuda_graph=%s).",
+                self._use_fp16,
+                self._use_cuda_graph,
+            )
             return True
 
         except Exception as e:
@@ -150,8 +156,8 @@ class GFPGANEngine:
         if not self._loaded:
             return bgr
         try:
-            import torch
             import cv2
+            import torch
 
             # Resize to 512x512, run, resize back
             h, w = bgr.shape[:2]
@@ -184,6 +190,7 @@ class GFPGANEngine:
         """Free GPU memory."""
         try:
             import torch
+
             del self._runner, self._model
             self._runner = None
             self._model = None
@@ -195,5 +202,8 @@ class GFPGANEngine:
 
 
 class _null_ctx:
-    def __enter__(self): return self
-    def __exit__(self, *a): pass
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass

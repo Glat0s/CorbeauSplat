@@ -6,10 +6,7 @@ send2trash==2.1.0
 opencv-python==4.13.0.92
 
 # Upscale Dependencies (managed by setup_dependencies.py for the correct venv)
-facexlib==0.3.0
-gfpgan==1.3.8
-# realesrgan removed as requested
-# basicsr removed as requested
+# gfpgan/facexlib/basicsr/realesrgan removed — using ONNX weights via custom vendor kernels
 kornia==0.8.2
 onnxruntime-gpu==1.24.3
 

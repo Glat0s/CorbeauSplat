@@ -55,9 +55,7 @@ class UpscaleTab(QWidget):
 
         # Model Selection
         self.model_combo = QComboBox()
-        self.model_combo.addItems(
-            ["RealESRGAN_x4plus", "RealESRNet_x4plus", "RealESRGAN_x4plus_anime_6B"]
-        )
+        self.model_combo.addItems(["RealESRGAN_x4plus"])
         self.lbl_model = QLabel(tr("upscale_lbl_model"))
         form_layout.addRow(self.lbl_model, self.model_combo)
 

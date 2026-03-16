@@ -14,9 +14,7 @@ class UpscaleEngine(BaseEngine):
     """
 
     _MODEL_URLS = {
-        "RealESRGAN_x4plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-        "RealESRNet_x4plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRNet_x4plus.pth",
-        "RealESRGAN_x4plus_anime_6B": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+        "RealESRGAN_x4plus": "https://github.com/visomaster/visomaster-assets/releases/download/v0.1.0/RealESRGAN_x4plus.fp16.onnx",
     }
 
     def __init__(self, logger_callback=None):
@@ -61,7 +59,8 @@ class UpscaleEngine(BaseEngine):
         if not url:
             self.log(f"No download URL for model: {model_name}")
             return False
-        dest = self.get_models_path() / f"{model_name}.pth"
+        # Derive filename from URL to preserve correct extension (e.g. .fp16.onnx)
+        dest = self.get_models_path() / url.split("/")[-1]
         try:
             import urllib.request
 
