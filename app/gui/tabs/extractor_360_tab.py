@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -18,10 +18,11 @@ from app.core.extractor_360_engine import Extractor360Engine
 from app.core.i18n import add_language_observer, tr
 from app.gui.widgets.dialog_utils import get_existing_directory, get_open_file_name
 from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.gui.widgets.resettable import reset_button
 
 
 class InstallWorker(QThread):
-    finished_signal = pyqtSignal(bool, str)
+    finished_signal = Signal(bool, str)
 
     def __init__(self, engine, install=True):
         super().__init__()
@@ -79,8 +80,11 @@ class Extractor360Tab(QWidget):
         self.spin_interval.setRange(0.1, 60.0)
         self.spin_interval.setValue(1.0)
         self.spin_interval.setSingleStep(0.1)
+        self.spin_interval.setFixedWidth(75)
         self.spin_interval.setToolTip(tr("360_tip_interval"))
         h_interval.addWidget(self.spin_interval)
+        h_interval.addWidget(reset_button(lambda: self.spin_interval.setValue(1.0)))
+        h_interval.addStretch()
         param_layout.addLayout(h_interval)
 
         # Resolution
@@ -91,8 +95,11 @@ class Extractor360Tab(QWidget):
         self.spin_res.setRange(512, 8192)
         self.spin_res.setValue(2048)
         self.spin_res.setSingleStep(256)
+        self.spin_res.setFixedWidth(80)
         self.spin_res.setToolTip(tr("360_tip_res"))
         h_res.addWidget(self.spin_res)
+        h_res.addWidget(reset_button(lambda: self.spin_res.setValue(2048)))
+        h_res.addStretch()
         param_layout.addLayout(h_res)
 
         # Layout
@@ -103,8 +110,11 @@ class Extractor360Tab(QWidget):
         self.combo_layout.addItem(tr("360_layout_ring"), "ring")
         self.combo_layout.addItem(tr("360_layout_cube"), "cube")
         self.combo_layout.addItem(tr("360_layout_fib"), "fibonacci")
+        self.combo_layout.setFixedWidth(110)
         self.combo_layout.setToolTip(tr("360_tip_layout"))
         h_layout.addWidget(self.combo_layout)
+        h_layout.addWidget(reset_button(lambda: self.combo_layout.setCurrentIndex(0)))
+        h_layout.addStretch()
         param_layout.addLayout(h_layout)
 
         # Camera Count
@@ -114,8 +124,11 @@ class Extractor360Tab(QWidget):
         self.spin_cam = QSpinBox()
         self.spin_cam.setRange(1, 24)
         self.spin_cam.setValue(6)
+        self.spin_cam.setFixedWidth(65)
         self.spin_cam.setToolTip(tr("360_tip_cameras"))
         h_cam.addWidget(self.spin_cam)
+        h_cam.addWidget(reset_button(lambda: self.spin_cam.setValue(6)))
+        h_cam.addStretch()
         param_layout.addLayout(h_cam)
 
         # Quality
@@ -125,8 +138,11 @@ class Extractor360Tab(QWidget):
         self.spin_quality = QSpinBox()
         self.spin_quality.setRange(1, 100)
         self.spin_quality.setValue(95)
+        self.spin_quality.setFixedWidth(70)
         self.spin_quality.setToolTip(tr("360_tip_quality"))
         h_qua.addWidget(self.spin_quality)
+        h_qua.addWidget(reset_button(lambda: self.spin_quality.setValue(95)))
+        h_qua.addStretch()
         param_layout.addLayout(h_qua)
 
         # Format
@@ -135,8 +151,11 @@ class Extractor360Tab(QWidget):
         h_fmt.addWidget(self.lbl_format)
         self.combo_format = QComboBox()
         self.combo_format.addItems(["jpg", "png"])
+        self.combo_format.setFixedWidth(80)
         self.combo_format.setToolTip(tr("360_tip_format"))
         h_fmt.addWidget(self.combo_format)
+        h_fmt.addWidget(reset_button(lambda: self.combo_format.setCurrentIndex(0)))
+        h_fmt.addStretch()
         param_layout.addLayout(h_fmt)
 
         layout.addWidget(self.group_params)
@@ -164,8 +183,11 @@ class Extractor360Tab(QWidget):
         self.spin_threshold.setRange(0.01, 1.0)
         self.spin_threshold.setValue(0.5)
         self.spin_threshold.setSingleStep(0.05)
+        self.spin_threshold.setFixedWidth(75)
         self.spin_threshold.setToolTip(tr("360_tip_threshold"))
         h_thresh.addWidget(self.spin_threshold)
+        h_thresh.addWidget(reset_button(lambda: self.spin_threshold.setValue(0.5)))
+        h_thresh.addStretch()
         ai_layout.addLayout(h_thresh)
 
         layout.addWidget(self.group_ai)

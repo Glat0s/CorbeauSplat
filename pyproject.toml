@@ -11,7 +11,7 @@ version = "0.9.0"
 description = "3D Gaussian Splatting pipeline for Windows"
 requires-python = "==3.11.*"
 dependencies = [
-    "PyQt6==6.10.2",
+    "PySide6",
     "requests==2.32.5",
     "urllib3==2.6.3",
     "numpy==2.4.3",

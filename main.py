@@ -4,7 +4,7 @@ import os
 import sys
 import time
 
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
 from app.core.brush_engine import BrushEngine
 from app.core.engine import ColmapEngine

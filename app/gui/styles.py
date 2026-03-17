@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication
 
 
 def set_dark_theme(app_instance=None):
@@ -73,13 +73,49 @@ def set_dark_theme(app_instance=None):
         QPushButton:pressed {
             background-color: #303030;
         }
-        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+        /* ── Reset-to-default buttons (must stay square, override min-width: 80px) ── */
+        QPushButton#resetBtn {
+            min-width: 22px;
+            max-width: 22px;
+            min-height: 22px;
+            max-height: 22px;
+            padding: 0px;
+            border-radius: 3px;
+            background-color: #404040;
+            border: 1px solid #555555;
+            color: #aaaaaa;
+            font-size: 13px;
+        }
+        QPushButton#resetBtn:hover {
+            background-color: #2a82da;
+            color: #ffffff;
+        }
+        QPushButton#resetBtn:pressed {
+            background-color: #1a62ba;
+        }
+        /* ── Input controls ── */
+        QLineEdit, QTextEdit {
             background-color: #252525;
             border: 1px solid #76797C;
             border-radius: 4px;
-            padding: 2px;
+            padding: 2px 4px;
             color: #ffffff;
+            selection-background-color: #2a82da;
+            selection-color: #ffffff;
         }
+        QLineEdit:read-only {
+            background-color: #1e1e1e;
+            color: #888888;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #2b2b2b;
+            border: 1px solid #76797C;
+            color: #ffffff;
+            selection-background-color: #2a82da;
+            selection-color: #ffffff;
+            outline: none;
+        }
+
         QProgressBar {
             border: 1px solid #76797C;
             border-radius: 5px;

@@ -1,5 +1,5 @@
-from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QHBoxLayout, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QHBoxLayout, QMessageBox, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from app.core.i18n import add_language_observer, tr
 from app.gui.widgets.dialog_utils import get_save_file_name

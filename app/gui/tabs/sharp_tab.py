@@ -1,5 +1,5 @@
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -19,8 +19,8 @@ from app.gui.widgets.drop_line_edit import DropLineEdit
 class SharpTab(QWidget):
     """ML Sharp sharpening tab."""
 
-    predictRequested = pyqtSignal()
-    stopRequested = pyqtSignal()
+    predictRequested = Signal()
+    stopRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)

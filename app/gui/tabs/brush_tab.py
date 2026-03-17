@@ -1,5 +1,5 @@
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -21,14 +21,15 @@ from app.core.i18n import add_language_observer, tr
 from app.core.system import resolve_binary
 from app.gui.widgets.dialog_utils import get_existing_directory
 from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.gui.widgets.resettable import make_resettable, reset_button
 
 
 class BrushTab(QWidget):
     """Onglet de configuration Brush"""
 
-    trainRequested = pyqtSignal()
-    stopRequested = pyqtSignal()
-    restartRequested = pyqtSignal()
+    trainRequested = Signal()
+    stopRequested = Signal()
+    restartRequested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -87,21 +88,27 @@ class BrushTab(QWidget):
 
         # Total Steps (Moved to top as requested)
         self.spin_total_steps = self.create_spin(30000, 1000, 200000, 1000, tr("brush_lbl_steps"))
+        self.spin_total_steps.setFixedWidth(90)
         self.lbl_steps = QLabel(tr("brush_lbl_steps"))
-        param_layout.addRow(self.lbl_steps, self.spin_total_steps)
+        param_layout.addRow(
+            self.lbl_steps,
+            make_resettable(self.spin_total_steps, lambda: self.spin_total_steps.setValue(30000)),
+        )
 
         # SH Degree
         self.sh_spin = QSpinBox()
         self.sh_spin.setRange(1, 4)
         self.sh_spin.setValue(3)
-        self.sh_spin.setMinimumWidth(100)
+        self.sh_spin.setFixedWidth(60)
         self.lbl_sh = QLabel(tr("brush_sh_degree"))
-        param_layout.addRow(self.lbl_sh, self.sh_spin)
+        param_layout.addRow(
+            self.lbl_sh, make_resettable(self.sh_spin, lambda: self.sh_spin.setValue(3))
+        )
 
         # Device
         self.device_combo = QComboBox()
         self.device_combo.addItems(["cuda", "cpu", "auto"])
-        self.device_combo.setMinimumWidth(150)
+        self.device_combo.setFixedWidth(100)
         self.lbl_device = QLabel(tr("brush_device"))
         param_layout.addRow(self.lbl_device, self.device_combo)
 
@@ -117,7 +124,7 @@ class BrushTab(QWidget):
         self.max_resolution_spin.setRange(0, 16384)
         self.max_resolution_spin.setValue(0)
         self.max_resolution_spin.setSpecialValueText(tr("brush_res_default"))
-        self.max_resolution_spin.setMinimumWidth(120)
+        self.max_resolution_spin.setFixedWidth(90)
         self.max_resolution_spin.setToolTip(tr("brush_tip_res"))
 
         self.res_warn_label = QLabel(tr("brush_res_warn"))
@@ -126,6 +133,7 @@ class BrushTab(QWidget):
         self.lbl_res = QLabel(tr("brush_lbl_res"))
         res_layout.addWidget(self.lbl_res)
         res_layout.addWidget(self.max_resolution_spin)
+        res_layout.addWidget(reset_button(lambda: self.max_resolution_spin.setValue(0)))
         res_layout.addWidget(self.res_warn_label)
         res_layout.addStretch()
         param_layout.addRow(res_layout)
@@ -223,23 +231,29 @@ class BrushTab(QWidget):
         # Row 1: Start Iter
         row1 = QHBoxLayout()
         self.spin_start_iter = self.create_spin(0, 0, 200000, 1000, tr("brush_lbl_start"))
+        self.spin_start_iter.setFixedWidth(90)
         self.lbl_start = QLabel(tr("brush_lbl_start"))
         row1.addWidget(self.lbl_start)
         row1.addWidget(self.spin_start_iter)
+        row1.addWidget(reset_button(lambda: self.spin_start_iter.setValue(0)))
         row1.addStretch()
         grid_layout.addLayout(row1)
 
         # Row 2: Refine Every & Growth Stop
         row2 = QHBoxLayout()
         self.spin_refine = self.create_spin(200, 50, 5000, 50, tr("brush_lbl_refine"))
+        self.spin_refine.setFixedWidth(80)
         self.spin_growth_stop = self.create_spin(15000, 0, 200000, 1000, tr("brush_lbl_stop"))
+        self.spin_growth_stop.setFixedWidth(90)
         self.lbl_refine = QLabel(tr("brush_lbl_refine"))
         self.lbl_stop = QLabel(tr("brush_lbl_stop"))
         row2.addWidget(self.lbl_refine)
         row2.addWidget(self.spin_refine)
+        row2.addWidget(reset_button(lambda: self.spin_refine.setValue(200)))
         row2.addSpacing(10)
         row2.addWidget(self.lbl_stop)
         row2.addWidget(self.spin_growth_stop)
+        row2.addWidget(reset_button(lambda: self.spin_growth_stop.setValue(15000)))
         grid_layout.addLayout(row2)
 
         # Row 3: Threshold & Fraction
@@ -247,16 +261,20 @@ class BrushTab(QWidget):
         self.spin_threshold = self.create_double_spin(
             0.003, 0.0001, 0.1, 4, 0.0001, tr("brush_lbl_threshold")
         )
+        self.spin_threshold.setFixedWidth(90)
         self.spin_fraction = self.create_double_spin(
             0.2, 0.0, 1.0, 2, 0.1, tr("brush_lbl_fraction")
         )
+        self.spin_fraction.setFixedWidth(75)
         self.lbl_threshold = QLabel(tr("brush_lbl_threshold"))
         self.lbl_fraction = QLabel(tr("brush_lbl_fraction"))
         row3.addWidget(self.lbl_threshold)
         row3.addWidget(self.spin_threshold)
+        row3.addWidget(reset_button(lambda: self.spin_threshold.setValue(0.003)))
         row3.addSpacing(10)
         row3.addWidget(self.lbl_fraction)
         row3.addWidget(self.spin_fraction)
+        row3.addWidget(reset_button(lambda: self.spin_fraction.setValue(0.2)))
         grid_layout.addLayout(row3)
 
         # Row 4: Max Splats & Checkpoint Interval
@@ -264,18 +282,22 @@ class BrushTab(QWidget):
         self.spin_max_splats = self.create_spin(
             10000000, 100000, 100000000, 100000, tr("brush_lbl_max_splats")
         )
+        self.spin_max_splats.setFixedWidth(105)
         self.spin_checkpoint_interval = self.create_spin(
             7000, 0, 50000, 1000, tr("brush_lbl_ckpt_interval")
         )
+        self.spin_checkpoint_interval.setFixedWidth(85)
 
         self.lbl_max_splats = QLabel(tr("brush_lbl_max_splats"))
         self.lbl_ckpt_interval = QLabel(tr("brush_lbl_ckpt_interval"))
 
         row4.addWidget(self.lbl_max_splats)
         row4.addWidget(self.spin_max_splats)
+        row4.addWidget(reset_button(lambda: self.spin_max_splats.setValue(10000000)))
         row4.addSpacing(10)
         row4.addWidget(self.lbl_ckpt_interval)
         row4.addWidget(self.spin_checkpoint_interval)
+        row4.addWidget(reset_button(lambda: self.spin_checkpoint_interval.setValue(7000)))
         grid_layout.addLayout(row4)
 
         details_layout.addLayout(grid_layout)

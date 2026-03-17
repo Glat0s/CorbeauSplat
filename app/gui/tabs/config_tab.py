@@ -1,5 +1,5 @@
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import add_language_observer, get_current_lang, set_language, tr
 from app.gui.widgets.dialog_utils import get_existing_directory, get_open_file_names
 from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.gui.widgets.resettable import reset_button
 
 
 class ResetDialog(QDialog):
@@ -118,12 +119,12 @@ class ConfigTab(QWidget):
     """Onglet de configuration principale"""
 
     # Signaux pour les actions globales qui necessitent l'orchestration du Main Window
-    processRequested = pyqtSignal()
-    stopRequested = pyqtSignal()
-    deleteDatasetRequested = pyqtSignal()
-    quitRequested = pyqtSignal()
-    relaunchRequested = pyqtSignal()
-    resetRequested = pyqtSignal(bool)  # True if deep reset requested
+    processRequested = Signal()
+    stopRequested = Signal()
+    deleteDatasetRequested = Signal()
+    quitRequested = Signal()
+    relaunchRequested = Signal()
+    resetRequested = Signal(bool)  # True if deep reset requested
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -194,7 +195,7 @@ class ConfigTab(QWidget):
         self.lbl_proj_name = QLabel(tr("label_project_name"))
         name_layout.addWidget(self.lbl_proj_name)
         self.input_project_name = QLineEdit()
-        self.input_project_name.setPlaceholderText("MonProjet")
+        self.input_project_name.setPlaceholderText("MyProject")
         name_layout.addWidget(self.input_project_name)
         input_layout.addLayout(name_layout)
 
@@ -273,8 +274,10 @@ class ConfigTab(QWidget):
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 60)
         self.fps_spin.setValue(5)
+        self.fps_spin.setFixedWidth(65)
         fps_layout.addWidget(self.label_fps)
         fps_layout.addWidget(self.fps_spin)
+        fps_layout.addWidget(reset_button(lambda: self.fps_spin.setValue(5)))
         fps_layout.addStretch()
         input_layout.addLayout(fps_layout)
 

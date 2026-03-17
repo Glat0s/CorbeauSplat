@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import add_language_observer, tr
 from app.core.params import ColmapParams
 from app.core.system import get_optimal_threads
+from app.gui.widgets.resettable import make_resettable
 
 
 class ParamsTab(QWidget):
@@ -43,9 +44,15 @@ class ParamsTab(QWidget):
             ["SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "RADIAL", "OPENCV", "OPENCV_FISHEYE"]
         )
         self.camera_model_combo.setCurrentText("SIMPLE_RADIAL")
-        self.camera_model_combo.setMinimumWidth(180)
+        self.camera_model_combo.setFixedWidth(160)
         self.lbl_camera_model = QLabel(tr("lbl_camera_model"))
-        extract_layout.addRow(self.lbl_camera_model, self.camera_model_combo)
+        extract_layout.addRow(
+            self.lbl_camera_model,
+            make_resettable(
+                self.camera_model_combo,
+                lambda: self.camera_model_combo.setCurrentText("SIMPLE_RADIAL"),
+            ),
+        )
 
         self.single_camera_check = QCheckBox()
         self.single_camera_check.setChecked(True)
@@ -55,16 +62,22 @@ class ParamsTab(QWidget):
         self.max_image_spin = QSpinBox()
         self.max_image_spin.setRange(640, 8192)
         self.max_image_spin.setValue(3200)
-        self.max_image_spin.setMinimumWidth(100)
+        self.max_image_spin.setFixedWidth(80)
         self.lbl_max_img = QLabel(tr("lbl_max_img"))
-        extract_layout.addRow(self.lbl_max_img, self.max_image_spin)
+        extract_layout.addRow(
+            self.lbl_max_img,
+            make_resettable(self.max_image_spin, lambda: self.max_image_spin.setValue(3200)),
+        )
 
         self.max_features_spin = QSpinBox()
         self.max_features_spin.setRange(1024, 32768)
         self.max_features_spin.setValue(8192)
-        self.max_features_spin.setMinimumWidth(100)
+        self.max_features_spin.setFixedWidth(85)
         self.lbl_max_feat = QLabel(tr("lbl_max_feat"))
-        extract_layout.addRow(self.lbl_max_feat, self.max_features_spin)
+        extract_layout.addRow(
+            self.lbl_max_feat,
+            make_resettable(self.max_features_spin, lambda: self.max_features_spin.setValue(8192)),
+        )
 
         self.force_cpu_check = QCheckBox()
         self.force_cpu_check.setEnabled(False)
@@ -90,25 +103,37 @@ class ParamsTab(QWidget):
         self.matcher_type_combo = QComboBox()
         self.matcher_type_combo.addItems(["exhaustive", "sequential", "vocab_tree"])
         self.matcher_type_combo.setCurrentText("exhaustive")
-        self.matcher_type_combo.setMinimumWidth(150)
+        self.matcher_type_combo.setFixedWidth(130)
         self.lbl_match_type = QLabel(tr("lbl_match_type"))
-        match_layout.addRow(self.lbl_match_type, self.matcher_type_combo)
+        match_layout.addRow(
+            self.lbl_match_type,
+            make_resettable(
+                self.matcher_type_combo,
+                lambda: self.matcher_type_combo.setCurrentText("exhaustive"),
+            ),
+        )
 
         self.max_ratio_spin = QDoubleSpinBox()
         self.max_ratio_spin.setRange(0.1, 1.0)
         self.max_ratio_spin.setSingleStep(0.1)
         self.max_ratio_spin.setValue(0.8)
-        self.max_ratio_spin.setMinimumWidth(100)
+        self.max_ratio_spin.setFixedWidth(75)
         self.lbl_max_ratio = QLabel(tr("lbl_max_ratio"))
-        match_layout.addRow(self.lbl_max_ratio, self.max_ratio_spin)
+        match_layout.addRow(
+            self.lbl_max_ratio,
+            make_resettable(self.max_ratio_spin, lambda: self.max_ratio_spin.setValue(0.8)),
+        )
 
         self.max_distance_spin = QDoubleSpinBox()
         self.max_distance_spin.setRange(0.1, 1.0)
         self.max_distance_spin.setSingleStep(0.1)
         self.max_distance_spin.setValue(0.7)
-        self.max_distance_spin.setMinimumWidth(100)
+        self.max_distance_spin.setFixedWidth(75)
         self.lbl_max_dist = QLabel(tr("lbl_max_dist"))
-        match_layout.addRow(self.lbl_max_dist, self.max_distance_spin)
+        match_layout.addRow(
+            self.lbl_max_dist,
+            make_resettable(self.max_distance_spin, lambda: self.max_distance_spin.setValue(0.7)),
+        )
 
         self.cross_check_check = QCheckBox()
         self.cross_check_check.setChecked(True)
@@ -130,9 +155,12 @@ class ParamsTab(QWidget):
         self.min_model_spin = QSpinBox()
         self.min_model_spin.setRange(3, 100)
         self.min_model_spin.setValue(10)
-        self.min_model_spin.setMinimumWidth(100)
+        self.min_model_spin.setFixedWidth(70)
         self.lbl_min_model = QLabel(tr("lbl_min_model"))
-        mapper_layout.addRow(self.lbl_min_model, self.min_model_spin)
+        mapper_layout.addRow(
+            self.lbl_min_model,
+            make_resettable(self.min_model_spin, lambda: self.min_model_spin.setValue(10)),
+        )
 
         self.use_glomap_check = QCheckBox()
         self.use_glomap_check.setText(tr("check_use_glomap"))
@@ -160,9 +188,12 @@ class ParamsTab(QWidget):
         self.min_matches_spin = QSpinBox()
         self.min_matches_spin.setRange(5, 100)
         self.min_matches_spin.setValue(15)
-        self.min_matches_spin.setMinimumWidth(100)
+        self.min_matches_spin.setFixedWidth(70)
         self.lbl_min_match = QLabel(tr("lbl_min_match"))
-        mapper_layout.addRow(self.lbl_min_match, self.min_matches_spin)
+        mapper_layout.addRow(
+            self.lbl_min_match,
+            make_resettable(self.min_matches_spin, lambda: self.min_matches_spin.setValue(15)),
+        )
 
         self.mapper_group.setLayout(mapper_layout)
         scroll_layout.addWidget(self.mapper_group)

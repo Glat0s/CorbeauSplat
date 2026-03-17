@@ -2,8 +2,8 @@ import logging
 import webbrowser
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QGroupBox,
@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import add_language_observer, tr
 from app.core.superplat_engine import SuperSplatEngine
 from app.gui.widgets.dialog_utils import get_open_file_name
+from app.gui.widgets.resettable import make_resettable
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 class SuperSplatTab(QWidget):
     """Onglet pour SuperSplat"""
 
-    stopRequested = pyqtSignal()  # Pour signifier au Main Window si besoin de cleanup global
+    stopRequested = Signal()  # Pour signifier au Main Window si besoin de cleanup global
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -51,14 +52,22 @@ class SuperSplatTab(QWidget):
         self.splat_port = QSpinBox()
         self.splat_port.setRange(1024, 65535)
         self.splat_port.setValue(3000)
+        self.splat_port.setFixedWidth(85)
         self.lbl_splat_port = QLabel(tr("lbl_splat_port", "Port SuperSplat :"))
-        server_layout.addRow(self.lbl_splat_port, self.splat_port)
+        server_layout.addRow(
+            self.lbl_splat_port,
+            make_resettable(self.splat_port, lambda: self.splat_port.setValue(3000)),
+        )
 
         self.data_port = QSpinBox()
         self.data_port.setRange(1024, 65535)
         self.data_port.setValue(8000)
+        self.data_port.setFixedWidth(85)
         self.lbl_data_port = QLabel(tr("lbl_data_port", "Port Données :"))
-        server_layout.addRow(self.lbl_data_port, self.data_port)
+        server_layout.addRow(
+            self.lbl_data_port,
+            make_resettable(self.data_port, lambda: self.data_port.setValue(8000)),
+        )
 
         self.server_group.setLayout(server_layout)
         layout.addWidget(self.server_group)

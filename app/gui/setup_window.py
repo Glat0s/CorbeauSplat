@@ -8,8 +8,8 @@ live per-step status.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QProgressBar,
@@ -42,9 +42,9 @@ _COLOR: dict[str, str] = {
 
 
 class SetupWorker(QThread):
-    step_update = pyqtSignal(str, str, str)  # step_id, display_name, status
-    log_message = pyqtSignal(str)
-    finished_setup = pyqtSignal(dict)  # {step_id: bool}
+    step_update = Signal(str, str, str)  # step_id, display_name, status
+    log_message = Signal(str)
+    finished_setup = Signal(dict)  # {step_id: bool}
 
     def run(self) -> None:
         from app.scripts.setup import run_setup

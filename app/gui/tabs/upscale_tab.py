@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.i18n import add_language_observer, tr
 from app.core.upscale_engine import UpscaleEngine
+from app.gui.widgets.resettable import make_resettable
 
 
 class UpscaleTab(QWidget):
@@ -66,9 +67,13 @@ class UpscaleTab(QWidget):
             [tr("upscale_scale_x4"), tr("upscale_scale_x2"), tr("upscale_scale_x1")]
         )
         self.scale_combo.setCurrentIndex(2)  # Default: x1 (enhance only)
+        self.scale_combo.setFixedWidth(120)
         self.scale_combo.setToolTip(tr("upscale_tip_scale"))
         self.lbl_scale = QLabel(tr("upscale_lbl_scale"))
-        form_layout.addRow(self.lbl_scale, self.scale_combo)
+        form_layout.addRow(
+            self.lbl_scale,
+            make_resettable(self.scale_combo, lambda: self.scale_combo.setCurrentIndex(2)),
+        )
 
         # Performance Profile
         self.profile_combo = QComboBox()
@@ -81,9 +86,13 @@ class UpscaleTab(QWidget):
                 tr("upscale_profile_custom"),
             ]
         )
+        self.profile_combo.setFixedWidth(140)
         self.profile_combo.setToolTip(tr("upscale_tip_profile"))
         self.lbl_profile = QLabel(tr("upscale_lbl_profile"))
-        form_layout.addRow(self.lbl_profile, self.profile_combo)
+        form_layout.addRow(
+            self.lbl_profile,
+            make_resettable(self.profile_combo, lambda: self.profile_combo.setCurrentIndex(0)),
+        )
         self.profile_combo.currentIndexChanged.connect(self.on_profile_changed)
 
         # Tile Size
@@ -92,6 +101,7 @@ class UpscaleTab(QWidget):
         self.tile_spin.setValue(512)
         self.tile_spin.setSingleStep(128)
         self.tile_spin.setSuffix(" px")
+        self.tile_spin.setFixedWidth(85)
         self.tile_spin.setToolTip(tr("upscale_tip_tile"))
         self.tile_spin.valueChanged.connect(self.on_manual_change)
         self.lbl_tile = QLabel(tr("upscale_lbl_tile"))
@@ -108,10 +118,16 @@ class UpscaleTab(QWidget):
         self.combo_gfpgan_backend.addItem("Triton + CUDA Graph (fastest)", "cuda_graph")
         self.combo_gfpgan_backend.addItem("Triton FP16 (fast)", "triton")
         self.combo_gfpgan_backend.addItem("PyTorch FP32 (fallback)", "pytorch")
+        self.combo_gfpgan_backend.setFixedWidth(230)
         self.combo_gfpgan_backend.setToolTip(
             tr("upscale_tip_gfpgan_backend", "Select inference backend for GFPGAN face restoration")
         )
-        form_layout.addRow(self.lbl_gfpgan_backend, self.combo_gfpgan_backend)
+        form_layout.addRow(
+            self.lbl_gfpgan_backend,
+            make_resettable(
+                self.combo_gfpgan_backend, lambda: self.combo_gfpgan_backend.setCurrentIndex(0)
+            ),
+        )
 
         # ESRGAN backend
         self.lbl_esrgan_backend = QLabel(tr("upscale_lbl_esrgan_backend", "ESRGAN backend:"))
@@ -121,13 +137,19 @@ class UpscaleTab(QWidget):
         self.combo_esrgan_backend.addItem("PyTorch + torch.compile (default)", "torch_compile")
         self.combo_esrgan_backend.addItem("PyTorch FP16 (safe)", "torch_fp16")
         self.combo_esrgan_backend.setCurrentIndex(2)
+        self.combo_esrgan_backend.setFixedWidth(260)
         self.combo_esrgan_backend.setToolTip(
             tr(
                 "upscale_tip_esrgan_backend",
                 "TRT builds engine on first run (~60s). Result is cached for future runs.",
             )
         )
-        form_layout.addRow(self.lbl_esrgan_backend, self.combo_esrgan_backend)
+        form_layout.addRow(
+            self.lbl_esrgan_backend,
+            make_resettable(
+                self.combo_esrgan_backend, lambda: self.combo_esrgan_backend.setCurrentIndex(2)
+            ),
+        )
 
         # FP16
         self.fp16_check = QCheckBox(tr("upscale_lbl_fp16"))
