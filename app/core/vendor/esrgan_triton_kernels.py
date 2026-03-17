@@ -15,10 +15,11 @@ Optimizations over torch.compile(max-autotune):
 
 All kernels have PyTorch fallbacks.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -30,6 +31,7 @@ _TRITON_AVAILABLE = False
 try:
     import triton
     import triton.language as tl
+
     _TRITON_AVAILABLE = True
 except ImportError:
     logger.debug("triton not available — ESRGAN Triton kernels will use PyTorch fallbacks")
@@ -40,14 +42,17 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 if _TRITON_AVAILABLE:
+
     @triton.jit
     def _scale_add_fwd(
-        X_ptr, R_ptr, Y_ptr,
+        X_ptr,
+        R_ptr,
+        Y_ptr,
         scale,
         n_elements,
         BLOCK: tl.constexpr,
     ):
-        pid  = tl.program_id(0)
+        pid = tl.program_id(0)
         offs = pid * BLOCK + tl.arange(0, BLOCK)
         mask = offs < n_elements
         x = tl.load(X_ptr + offs, mask=mask).to(tl.float32)
@@ -56,18 +61,16 @@ if _TRITON_AVAILABLE:
         tl.store(Y_ptr + offs, y.to(x.dtype), mask=mask)
 
 
-def triton_scale_add(
-    x: torch.Tensor, residual: torch.Tensor, scale: float = 0.2
-) -> torch.Tensor:
+def triton_scale_add(x: torch.Tensor, residual: torch.Tensor, scale: float = 0.2) -> torch.Tensor:
     """Compute out = x * scale + residual with a single Triton kernel."""
     if not (_TRITON_AVAILABLE and x.is_cuda):
         return x * scale + residual
     x_c = x.contiguous()
     r_c = residual.contiguous()
     out = torch.empty_like(x_c)
-    n   = x_c.numel()
+    n = x_c.numel()
     BLOCK = 1024
-    grid  = ((n + BLOCK - 1) // BLOCK,)
+    grid = ((n + BLOCK - 1) // BLOCK,)
     _scale_add_fwd[grid](x_c, r_c, out, scale, n, BLOCK=BLOCK)
     return out
 
@@ -77,6 +80,7 @@ def triton_scale_add(
 # ---------------------------------------------------------------------------
 
 if _TRITON_AVAILABLE:
+
     @triton.jit
     def _leakyrelu_inplace_fwd(
         X_ptr,
@@ -84,7 +88,7 @@ if _TRITON_AVAILABLE:
         n_elements,
         BLOCK: tl.constexpr,
     ):
-        pid  = tl.program_id(0)
+        pid = tl.program_id(0)
         offs = pid * BLOCK + tl.arange(0, BLOCK)
         mask = offs < n_elements
         x = tl.load(X_ptr + offs, mask=mask).to(tl.float32)
@@ -98,9 +102,9 @@ def triton_leakyrelu_inplace(x: torch.Tensor, negative_slope: float = 0.2) -> to
         return F.leaky_relu_(x, negative_slope=negative_slope)
     if not x.is_contiguous():
         x = x.contiguous()
-    n     = x.numel()
+    n = x.numel()
     BLOCK = 1024
-    grid  = ((n + BLOCK - 1) // BLOCK,)
+    grid = ((n + BLOCK - 1) // BLOCK,)
     _leakyrelu_inplace_fwd[grid](x, negative_slope, n, BLOCK=BLOCK)
     return x
 
@@ -110,10 +114,15 @@ def triton_leakyrelu_inplace(x: torch.Tensor, negative_slope: float = 0.2) -> to
 # ---------------------------------------------------------------------------
 
 if _TRITON_AVAILABLE:
+
     @triton.jit
     def _pixel_shuffle_2x_fwd(
-        SRC_ptr, DST_ptr,
-        B, C_out, H, W,    # output dimensions
+        SRC_ptr,
+        DST_ptr,
+        B,
+        C_out,
+        H,
+        W,  # output dimensions
         BLOCK_C: tl.constexpr,
     ):
         """
@@ -121,19 +130,19 @@ if _TRITON_AVAILABLE:
         Each program handles one spatial output position (b, h_out, w_out).
         grid = (B * (2*H) * (2*W),)
         """
-        idx   = tl.program_id(0)
-        H2    = H * 2
-        W2    = W * 2
-        b     = idx // (H2 * W2)
-        rem   = idx %  (H2 * W2)
+        idx = tl.program_id(0)
+        H2 = H * 2
+        W2 = W * 2
+        b = idx // (H2 * W2)
+        rem = idx % (H2 * W2)
         h_out = rem // W2
-        w_out = rem %  W2
+        w_out = rem % W2
 
         # Source spatial position
         h_src = h_out // 2
         w_src = w_out // 2
-        sh    = h_out %  2   # sub-pixel row
-        sw    = w_out %  2   # sub-pixel col
+        sh = h_out % 2  # sub-pixel row
+        sw = w_out % 2  # sub-pixel col
 
         # Source channel offset: channel_in = c_out + C_out*(sh*2 + sw)
         src_ch_base = C_out * (sh * 2 + sw)
@@ -167,6 +176,7 @@ def triton_pixel_shuffle_2x(x: torch.Tensor) -> torch.Tensor:
 # Memory-efficient DenseBlock
 # ---------------------------------------------------------------------------
 
+
 class MemEfficientDenseBlock(nn.Module):
     """
     Optimized ResidualDenseBlock.
@@ -185,21 +195,21 @@ class MemEfficientDenseBlock(nn.Module):
 
     def __init__(self, num_feat: int = 64, num_grow_ch: int = 32):
         super().__init__()
-        self.num_feat    = num_feat
+        self.num_feat = num_feat
         self.num_grow_ch = num_grow_ch
 
-        self.conv1 = nn.Conv2d(num_feat,                num_grow_ch, 3, 1, 1)
-        self.conv2 = nn.Conv2d(num_feat + num_grow_ch,   num_grow_ch, 3, 1, 1)
-        self.conv3 = nn.Conv2d(num_feat + num_grow_ch*2, num_grow_ch, 3, 1, 1)
-        self.conv4 = nn.Conv2d(num_feat + num_grow_ch*3, num_grow_ch, 3, 1, 1)
-        self.conv5 = nn.Conv2d(num_feat + num_grow_ch*4, num_feat,    3, 1, 1)
+        self.conv1 = nn.Conv2d(num_feat, num_grow_ch, 3, 1, 1)
+        self.conv2 = nn.Conv2d(num_feat + num_grow_ch, num_grow_ch, 3, 1, 1)
+        self.conv3 = nn.Conv2d(num_feat + num_grow_ch * 2, num_grow_ch, 3, 1, 1)
+        self.conv4 = nn.Conv2d(num_feat + num_grow_ch * 3, num_grow_ch, 3, 1, 1)
+        self.conv5 = nn.Conv2d(num_feat + num_grow_ch * 4, num_feat, 3, 1, 1)
 
         self._buf: Optional[torch.Tensor] = None  # persistent concat buffer
 
     # Copy weights from a standard ResidualDenseBlock module
     @classmethod
-    def from_module(cls, rdb: nn.Module) -> "MemEfficientDenseBlock":
-        nf  = rdb.conv1.in_channels
+    def from_module(cls, rdb: nn.Module) -> MemEfficientDenseBlock:
+        nf = rdb.conv1.in_channels
         ngc = rdb.conv1.out_channels
         new = cls(nf, ngc)
         for i in range(1, 6):
@@ -214,32 +224,32 @@ class MemEfficientDenseBlock(nn.Module):
         """Return (or recreate) pre-allocated buffer large enough for all cats."""
         B, _, H, W = x.shape
         total_ch = self.num_feat + self.num_grow_ch * 4
-        needed   = (B, total_ch, H, W)
+        needed = (B, total_ch, H, W)
         if self._buf is None or self._buf.shape != needed or self._buf.device != x.device:
             self._buf = torch.empty(needed, dtype=x.dtype, device=x.device)
         return self._buf
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         buf = self._get_buf(x)
-        nf  = self.num_feat
+        nf = self.num_feat
         ngc = self.num_grow_ch
 
         # Slot x into the start of the buffer (no copy if already there)
         buf[:, :nf, :, :].copy_(x)
 
         x1 = triton_leakyrelu_inplace(self.conv1(buf[:, :nf, :, :]))
-        buf[:, nf: nf+ngc, :, :].copy_(x1)
+        buf[:, nf : nf + ngc, :, :].copy_(x1)
 
-        x2 = triton_leakyrelu_inplace(self.conv2(buf[:, :nf+ngc, :, :]))
-        buf[:, nf+ngc: nf+ngc*2, :, :].copy_(x2)
+        x2 = triton_leakyrelu_inplace(self.conv2(buf[:, : nf + ngc, :, :]))
+        buf[:, nf + ngc : nf + ngc * 2, :, :].copy_(x2)
 
-        x3 = triton_leakyrelu_inplace(self.conv3(buf[:, :nf+ngc*2, :, :]))
-        buf[:, nf+ngc*2: nf+ngc*3, :, :].copy_(x3)
+        x3 = triton_leakyrelu_inplace(self.conv3(buf[:, : nf + ngc * 2, :, :]))
+        buf[:, nf + ngc * 2 : nf + ngc * 3, :, :].copy_(x3)
 
-        x4 = triton_leakyrelu_inplace(self.conv4(buf[:, :nf+ngc*3, :, :]))
-        buf[:, nf+ngc*3: nf+ngc*4, :, :].copy_(x4)
+        x4 = triton_leakyrelu_inplace(self.conv4(buf[:, : nf + ngc * 3, :, :]))
+        buf[:, nf + ngc * 3 : nf + ngc * 4, :, :].copy_(x4)
 
-        x5 = self.conv5(buf[:, :nf+ngc*4, :, :])
+        x5 = self.conv5(buf[:, : nf + ngc * 4, :, :])
 
         # Fused scale (0.2) + residual add
         return triton_scale_add(x5, x, scale=0.2)

@@ -1,11 +1,13 @@
-from PyQt6.QtWidgets import QLineEdit
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QLineEdit
+
 
 class DropLineEdit(QLineEdit):
     """
     A QLineEdit that accepts file drops.
     Emits fileDropped(str) signal when a valid path is dropped.
     """
+
     fileDropped = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -33,7 +35,7 @@ class DropLineEdit(QLineEdit):
                     path = url.toLocalFile()
                     if path:
                         paths.append(path)
-                
+
                 if paths:
                     # Join multiple paths with a pipe separator
                     joined_paths = "|".join(paths)

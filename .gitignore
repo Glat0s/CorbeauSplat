@@ -1,37 +1,39 @@
-# MacOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-env/
-venv/
-.venv/
 *.egg-info/
 dist/
 build/
 
-# Application - Engines (Downloaded/Compiled locally)
-engines/
+# Virtual environments (main + all dedicated sub-venvs)
+.venv/
+.venv_*/
 
-# Application - User Config & Logs
+# Application - Engines & Weights (downloaded at runtime, not committed)
+engines/
+weights/
+
+# Application - User data & logs
 config.json
+logs/
 *.log
+
+# uv
+uv.lock
 
 # IDE
 .idea/
 .vscode/
 .claude/
 
-# Project Specific (Cleanup)
-target/
-.venv_sharp/
-.venv_360/
-*.pth
-weights/
+# macOS (contributors)
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# macOS launch script (Windows-only app)
+run.command

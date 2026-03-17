@@ -8,10 +8,10 @@ echo "Working directory: $(pwd)"
 if [ -d ".git" ]; then
     echo "--- Phase 1: Checking for updates ---"
     git fetch > /dev/null 2>&1
-    
+
     if git rev-parse --abbrev-ref --symbolic-full-name @{u} > /dev/null 2>&1; then
         BEHIND_COUNT=$(git rev-list --count HEAD..@{u})
-        
+
         if [ "$BEHIND_COUNT" -gt 0 ]; then
              echo ">>> A new version is available ($BEHIND_COUNT commits behind)."
              read -p ">>> Would you like to update now? (y/n) " -n 1 -r
@@ -39,13 +39,13 @@ PYTHON_CMD="$VENV_DIR/bin/python3"
 if [ ! -d "$VENV_DIR" ] || [ ! -f "$PYTHON_CMD" ]; then
     echo "Creating virtual environment..."
     if [ -d "$VENV_DIR" ]; then echo "⚠️ Venv corrupted. Rebuilding..."; rm -rf "$VENV_DIR"; fi
-    
+
     PY_CANDIDATES=("python3.11" "python3.10" "python3")
     SELECTED_PY=""
     for py in "${PY_CANDIDATES[@]}"; do
         if command -v $py >/dev/null 2>&1; then SELECTED_PY=$py; break; fi
     done
-    
+
     if [ -z "$SELECTED_PY" ]; then
         echo "❌ ERROR: Python 3 not found. Please install Python 3.10 or 3.11."
         exit 1
@@ -72,10 +72,10 @@ echo "--- Phase 3: Synchronizing dependencies ---"
 echo "Checking for pip updates..."
 "$PYTHON_CMD" -m pip install --upgrade pip > /dev/null 2>&1
 
-if [ -f "requirements.lock" ]; then 
+if [ -f "requirements.lock" ]; then
     DEP_FILE="requirements.lock"
     echo "Found lockfile: $DEP_FILE"
-else 
+else
     DEP_FILE="requirements.txt"
     echo "Found dependency list: $DEP_FILE"
 fi

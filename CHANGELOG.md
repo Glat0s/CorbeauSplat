@@ -76,7 +76,7 @@
 ## [0.74] - 2026-03-01
 
 ### ✨ Installation & Stability
--   **Brush Engine Optimization**: 
+-   **Brush Engine Optimization**:
     -   **Native Binaries**: The dependency installer now downloads the official, pre-compiled `v0.3.0` release binaries of Brush for macOS (Apple Silicon), Windows, and Linux rather than building from source. This entirely bypasses the Rust toolchain requirements and typical `cargo` compilation errors.
     -   **Fail-safe Compilation**: If the binary download fails or the platform is unsupported, the `cargo install` fallback is now strictly pinned to tag `v0.3.0` with `--locked` dependencies, preventing build breakages caused by upstream library updates (like the previous `naga` crate issue).
 
@@ -119,7 +119,7 @@
     -   100% localization coverage achieved for all 10 core UI tabs.
     -   Implemented a robust **Observer Pattern** for real-time language switching.
     -   UI elements now update instantly (labels, tooltips, placeholders, window titles) without requiring an application restart.
--   **Consolidated UI Architecture**: 
+-   **Consolidated UI Architecture**:
     -   Standardized the `retranslate_ui` pattern across the entire application interface.
     -   Centralized all user-facing strings in `i18n.py` for easier future translations.
 
@@ -136,7 +136,7 @@
 ## [v0.6] - 2026-02-06
 
 ### ✨ New Features (Major)
--   **360 Extractor Integration (Experimental)**: 
+-   **360 Extractor Integration (Experimental)**:
     -   Dedicated module to convert **360° videos** (Equirectangular) into planar images for photogrammetry.
     -   **Smart Extraction**: Supports **YOLO-based masking** to remove the operator/cameraman.
     -   **Adaptive Intervals**: Motion detection to skip static frames.
@@ -160,7 +160,7 @@
 
 ### 🏗 Architecture & Performance (Total Refactor)
 -   **Python 3.13+ & JIT**: Added native detection for modern Python versions to enable Free-threading and JIT optimizations.
--   **Apple Silicon Optimization**: 
+-   **Apple Silicon Optimization**:
     -   Rewrite of thread management logic to exploit **Performance Cores** (P-Cores) on Apple Silicon chips without blocking the UI.
     -   Vectorization improvements via `numpy` and native library bindings.
 -   **Dual-Environment**: Implemented a dedicated sandbox (`.venv_sharp`) for Apple ML Sharp (Python 3.11) preventing conflicts with the main application (Python 3.13+).
@@ -218,7 +218,7 @@
     -   Silent failures during dependency installation are now detected.
     -   Detailed error logs are shown to the user if installation fails.
     -   Added explicit health check for `PyQt6` to prevent crash-on-launch loops.
--   **Dependency Management**: 
+-   **Dependency Management**:
     -   Added `requirements.lock` to ensure reproducible builds.
     -   Added automatic `pip` upgrade check.
 

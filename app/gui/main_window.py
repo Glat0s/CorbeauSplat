@@ -25,8 +25,7 @@ from app.gui.tabs.params_tab import ParamsTab
 from app.gui.tabs.sharp_tab import SharpTab
 from app.gui.tabs.superplat_tab import SuperSplatTab
 from app.gui.tabs.upscale_tab import UpscaleTab
-from app.gui.tabs.vr180_tab import VR180Tab
-from app.gui.workers import BrushWorker, ColmapWorker, SharpWorker, VR180Worker
+from app.gui.workers import BrushWorker, ColmapWorker, SharpWorker
 
 
 class ColmapGUI(QMainWindow):
@@ -35,7 +34,6 @@ class ColmapGUI(QMainWindow):
         self.worker = None
         self.brush_worker = None
         self.sharp_worker = None
-        self.vr180_worker = None
         self.fourdgs_worker = None
 
         # [AUDIT] SRP : Extraction de la gestion de session
@@ -72,9 +70,6 @@ class ColmapGUI(QMainWindow):
 
         self.superplat_tab = SuperSplatTab()
         self.tabs.addTab(self.superplat_tab, tr("tab_supersplat"))
-
-        self.vr180_tab = VR180Tab()
-        self.tabs.addTab(self.vr180_tab, tr("tab_vr180", "VR 180"))
 
         self.upscale_tab = UpscaleTab()
         self.tabs.addTab(self.upscale_tab, tr("tab_upscale"))
@@ -125,7 +120,6 @@ class ColmapGUI(QMainWindow):
             self.params_tab: tr("tab_params"),
             self.brush_tab: tr("tab_brush"),
             self.superplat_tab: tr("tab_supersplat"),
-            self.vr180_tab: tr("tab_vr180", "VR 180"),
             self.upscale_tab: tr("tab_upscale"),
             self.extractor_360_tab: tr("tab_360"),
             self.four_dgs_tab: tr("tab_four_dgs"),
@@ -144,7 +138,6 @@ class ColmapGUI(QMainWindow):
     def apply_tab_styling(self):
         """Color-code tabs: bright for workflow steps, muted for optional tools."""
         tool_tabs = [
-            self.vr180_tab,
             self.upscale_tab,
             self.extractor_360_tab,
             self.four_dgs_tab,
@@ -260,25 +253,6 @@ class ColmapGUI(QMainWindow):
             self.fourdgs_worker.finished_signal.connect(self.on_finished)
             self.fourdgs_worker.start()
 
-        elif mode == "vr180":
-            self.logs_tab.append_log(tr("msg_processing") + " (VR 180)")
-            vr180_params = self.vr180_tab.get_params()
-
-            self.vr180_worker = VR180Worker(
-                video_path=input_path,
-                output_dir=output_path,
-                project_name=self.config_tab.get_project_name(),
-                fps=self.config_tab.get_fps(),
-                vr180_params=vr180_params,
-                colmap_params=self.get_current_params(),
-                upscale_params=self.get_upscale_config(),
-            )
-            self.vr180_worker.log_signal.connect(self.logs_tab.append_log)
-            self.vr180_worker.progress_signal.connect(self.config_tab.progress_bar.setValue)
-            self.vr180_worker.status_signal.connect(self.config_tab.lbl_status.setText)
-            self.vr180_worker.finished_signal.connect(self.on_finished)
-            self.vr180_worker.start()
-
         # self.tabs.setCurrentWidget(self.logs_tab)
 
     def stop_process(self):
@@ -290,11 +264,6 @@ class ColmapGUI(QMainWindow):
                 hasattr(self, "fourdgs_worker")
                 and self.fourdgs_worker
                 and self.fourdgs_worker.isRunning()
-            )
-            or (
-                hasattr(self, "vr180_worker")
-                and self.vr180_worker
-                and self.vr180_worker.isRunning()
             )
         ):
 
@@ -317,12 +286,6 @@ class ColmapGUI(QMainWindow):
                     and self.fourdgs_worker.isRunning()
                 ):
                     self.fourdgs_worker.stop()
-                if (
-                    hasattr(self, "vr180_worker")
-                    and self.vr180_worker
-                    and self.vr180_worker.isRunning()
-                ):
-                    self.vr180_worker.stop()
 
     def on_finished(self, success, message):
         """Fin du traitement"""

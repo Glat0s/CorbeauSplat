@@ -208,7 +208,6 @@ class ConfigTab(QWidget):
         self.combo_mode.addItem(tr("mode_sharp"), "sharp")
         self.combo_mode.addItem(tr("mode_360"), "360")
         self.combo_mode.addItem(tr("mode_4dgs"), "4dgs")
-        self.combo_mode.addItem(tr("mode_vr180"), "vr180")
         mode_layout.addWidget(self.combo_mode)
         mode_layout.addStretch()
         input_layout.addLayout(mode_layout)
@@ -428,9 +427,7 @@ class ConfigTab(QWidget):
         self.radio_images.setVisible(is_gsplat)
         self.radio_video.setVisible(is_gsplat)
 
-        is_video = (mode == "gsplat" and self.radio_video.isChecked()) or (
-            mode in ["360", "4dgs", "vr180"]
-        )
+        is_video = (mode == "gsplat" and self.radio_video.isChecked()) or (mode in ["360", "4dgs"])
 
         # FPS input is visible only if we can give video sources in theory
         self.fps_spin.setVisible(is_video)
@@ -445,8 +442,8 @@ class ConfigTab(QWidget):
         # Undistort check makes sense for gsplat
         self.undistort_check.setVisible(mode == "gsplat")
 
-        # Upscale check for gsplat, sharp, 360, vr180
-        self.chk_upscale.setVisible(mode in ["gsplat", "sharp", "360", "vr180"])
+        # Upscale check for gsplat, sharp, 360
+        self.chk_upscale.setVisible(mode in ["gsplat", "sharp", "360"])
 
         # Re-translate based on dynamic mode specific checks if needed
         # We also clear path if switching modes normally makes it invalid, but for now leave as is.
@@ -508,17 +505,6 @@ class ConfigTab(QWidget):
             path = get_existing_directory(self, tr("group_input"))
             if path:
                 self.input_path.setText(path)
-
-        elif mode == "vr180":
-            # Single VR 180 video file
-            paths, _ = get_open_file_names(
-                self,
-                tr("group_input"),
-                "",
-                "Videos (*.mp4 *.mov *.avi *.mkv *.MP4 *.MOV);;All (*.*)",
-            )
-            if paths:
-                self.input_path.setText(paths[0])
 
     def browse_output(self):
         """Parcourir la sortie"""
@@ -587,7 +573,7 @@ class ConfigTab(QWidget):
         mode = self.get_training_mode()
         if mode == "gsplat":
             return "video" if self.radio_video.isChecked() else "images"
-        elif mode in ["360", "4dgs", "vr180"]:
+        elif mode in ["360", "4dgs"]:
             return "video"
         return "images"
 
@@ -705,7 +691,6 @@ class ConfigTab(QWidget):
         self.combo_mode.setItemText(1, tr("mode_sharp"))
         self.combo_mode.setItemText(2, tr("mode_360"))
         self.combo_mode.setItemText(3, tr("mode_4dgs"))
-        self.combo_mode.setItemText(4, tr("mode_vr180"))
         self.lbl_type.setText(tr("label_type"))
         self.radio_images.setText(tr("radio_images"))
         self.radio_video.setText(tr("radio_video"))

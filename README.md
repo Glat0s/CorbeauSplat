@@ -14,9 +14,8 @@ A unified GUI that orchestrates:
 4. **Visualisation** — built-in **SuperSplat** viewer tab.
 5. **Image Upscaling** — **Real-ESRGAN** super-resolution before COLMAP for sharper features. Multiple inference backends: PyTorch FP16, ORT CUDA, ORT TensorRT.
 6. **Face Restoration** — **GFPGAN v1.4** face enhancement with custom Triton kernels and CUDA graph capture.
-7. **VR 180 Green-Screen Pipeline** — extract one eye from SBS/TB VR video, GPU chroma-key removal (PyTorch+kornia), SAM person segmentation, output ready-for-COLMAP RGBA frames.
-8. **360° Extractor** — equirectangular → cube map / ring / Fibonacci layouts with AI operator masking.
-9. **4DGS Preparation** — multi-camera video → Nerfstudio format.
+7. **360° Extractor** — equirectangular → cube map / ring / Fibonacci layouts with AI operator masking.
+8. **4DGS Preparation** — multi-camera video → Nerfstudio format.
 
 Built-in localisation: French, English, German, Italian, Spanish, Arabic, Russian, Chinese, Japanese.
 
@@ -107,11 +106,10 @@ On first launch CorbeauSplat automatically opens a **Setup Wizard** that:
 2. Downloads and builds **Brush** (3DGS trainer) from its latest release binary.
 3. Clones and builds **SuperSplat** (viewer) via npm.
 4. Installs the **360° Extractor** Python environment.
-5. Installs the **VR180 Engine** (SAM + PyTorch + OpenCV) in an isolated venv.
-6. Installs the **Sharp** (ML sharpening) environment.
-7. Downloads the **Real-ESRGAN** ONNX model weights (~70 MB).
-8. Downloads the **GFPGAN v1.4** ONNX model weights (~340 MB).
-9. Downloads the **SAM ViT-B** checkpoint (~375 MB).
+5. Installs the **Sharp** (ML sharpening) environment.
+6. Downloads the **Real-ESRGAN** ONNX model weights (~70 MB).
+7. Downloads the **GFPGAN v1.4** ONNX model weights (~340 MB).
+8. Downloads the **SAM ViT-B** checkpoint (~375 MB).
 
 Setup runs once and writes a completion marker. Subsequent launches skip setup and open the main window directly.
 
@@ -140,27 +138,20 @@ Console output shows INFO-level messages and above.
 - Define Project Name and Output Folder.
 - Click **"Create COLMAP Dataset"**.
 
-### 2. VR 180 Tab — Green Screen Pipeline
-1. Select **VR format**: Side-by-Side (SBS) or Top-Bottom (TB).
-2. Select **Eye**: Left or Right.
-3. Tune **Chroma Key** parameters (hue centre, tolerance, saturation/value thresholds).
-4. Optionally enable **SAM** for person segmentation refinement.
-5. Set **GPU batch size** (default 8; increase for faster processing on high-VRAM cards).
-
-### 3. Upscale Tab (optional)
+### 2. Upscale Tab (optional)
 - Select **ESRGAN inference backend**:
   - `PyTorch + torch.compile` — default, no build step.
   - `ORT TensorRT` — builds TRT engine on first run (~60s), then cached. **Fastest**.
   - `ORT CUDA EP` — fast, no build step.
 - Enable **Face Enhance (GFPGAN)** to restore face details before COLMAP.
 
-### 4. Params Tab
+### 3. Params Tab
 - GPU SiftGPU is enabled by default (`use_gpu_sift`, `use_gpu_matching`).
 
-### 5. Brush Tab
+### 4. Brush Tab
 - Click **"Start Brush Training"**. Uses the Vulkan backend automatically on Windows.
 
-### 6. SuperSplat Tab
+### 5. SuperSplat Tab
 - Load `.ply` → **"Start Servers"**.
 
 ---

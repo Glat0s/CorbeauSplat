@@ -27,19 +27,15 @@ _ESRGAN_URL = "https://github.com/visomaster/visomaster-assets/releases/download
 _GFPGAN_URL = (
     "https://github.com/visomaster/visomaster-assets/releases/download/v0.1.0/GFPGANv1.4.onnx"
 )
-_SAM_VIT_B_URL = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
-
 # Ordered list of (step_id, display_name) — used by the UI and run_setup.
 STEP_IDS: list[tuple[str, str]] = [
     ("colmap", "COLMAP (photogrammetry)"),
     ("brush", "Brush (3DGS trainer)"),
     ("supersplat", "SuperSplat (viewer)"),
     ("extractor360", "360° Extractor"),
-    ("vr180", "VR180 Engine (SAM + PyTorch)"),
     ("sharp", "Sharp (ML sharpening)"),
     ("esrgan", "ESRGAN model (upscaling)"),
     ("gfpgan", "GFPGAN model (face restore)"),
-    ("sam", "SAM ViT-B checkpoint"),
 ]
 
 
@@ -149,7 +145,6 @@ def run_setup(
         Extractor360EngineDep,
         SharpEngineDep,
         SuperSplatEngineDep,
-        VR180EngineDep,
         _download_colmap_windows,
         _find_colmap_in_engines,
     )
@@ -190,7 +185,6 @@ def run_setup(
         (BrushEngineDep, "brush", "Brush (3DGS trainer)"),
         (SuperSplatEngineDep, "supersplat", "SuperSplat (viewer)"),
         (Extractor360EngineDep, "extractor360", "360° Extractor"),
-        (VR180EngineDep, "vr180", "VR180 Engine (SAM + PyTorch)"),
         (SharpEngineDep, "sharp", "Sharp (ML sharpening)"),
     ]:
         _run_engine(dep_cls(), step_id, name, results, log_cb, _notify)
@@ -205,11 +199,6 @@ def run_setup(
         "gfpgan",
         "GFPGAN model (face restore)",
         lambda: _download_file(_GFPGAN_URL, weights_dir / "GFPGANv1.4.onnx", log_cb),
-    )
-    _run(
-        "sam",
-        "SAM ViT-B checkpoint",
-        lambda: _download_file(_SAM_VIT_B_URL, engines_dir / "sam_vit_b.pth", log_cb),
     )
 
     log_cb("\n=== Setup complete ===")

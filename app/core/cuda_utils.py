@@ -8,10 +8,10 @@ Provides:
   - Pinned-memory frame buffer for zero-copy H2D transfers
   - One-shot CUDA warm-up to eliminate first-inference latency
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger("cuda_utils")
 
@@ -20,9 +20,11 @@ logger = logging.getLogger("cuda_utils")
 # Capability probes (no torch import at module level — stays importable on CPU)
 # ---------------------------------------------------------------------------
 
+
 def cuda_available() -> bool:
     try:
         import torch
+
         return torch.cuda.is_available()
     except ImportError:
         return False
@@ -32,6 +34,7 @@ def get_cuda_capability() -> tuple[int, int]:
     """Returns (major, minor) CUDA compute capability, e.g. (8, 9) for RTX 4090."""
     try:
         import torch
+
         if torch.cuda.is_available():
             return torch.cuda.get_device_capability(0)
     except Exception:
@@ -42,6 +45,7 @@ def get_cuda_capability() -> tuple[int, int]:
 def trt_available() -> bool:
     try:
         import tensorrt  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -50,6 +54,7 @@ def trt_available() -> bool:
 def torch_tensorrt_available() -> bool:
     try:
         import torch_tensorrt  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -58,6 +63,7 @@ def torch_tensorrt_available() -> bool:
 def ort_cuda_available() -> bool:
     try:
         import onnxruntime as ort
+
         return "CUDAExecutionProvider" in ort.get_available_providers()
     except ImportError:
         return False
@@ -66,6 +72,7 @@ def ort_cuda_available() -> bool:
 def ort_trt_available() -> bool:
     try:
         import onnxruntime as ort
+
         return "TensorrtExecutionProvider" in ort.get_available_providers()
     except ImportError:
         return False
@@ -75,6 +82,7 @@ def triton_available() -> bool:
     """torch.compile on Windows requires triton-windows; detect it."""
     try:
         import triton  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -84,6 +92,7 @@ def compile_available() -> bool:
     """torch.compile is usable only when Triton is present (Windows requirement)."""
     try:
         import torch
+
         # torch.compile exists in PyTorch >= 2.0
         if not hasattr(torch, "compile"):
             return False
@@ -99,14 +108,15 @@ def select_dtype(prefer_half: bool = True):
     On RTX 4090 (Ada Lovelace, cap 8.9), FP16 and BF16 are both available.
     """
     import torch
+
     if not torch.cuda.is_available():
         return torch.float32
     major, _ = get_cuda_capability()
     if prefer_half:
         if major >= 8:
-            return torch.float16   # Ada: use fp16 (BF16 also works but fp16 is faster for ViT)
+            return torch.float16  # Ada: use fp16 (BF16 also works but fp16 is faster for ViT)
         if major >= 7:
-            return torch.float16   # Volta/Turing/Ampere Tensor Cores
+            return torch.float16  # Volta/Turing/Ampere Tensor Cores
     return torch.float32
 
 
@@ -144,6 +154,7 @@ def warm_up_cuda(device: str = "cuda") -> None:
         return
     try:
         import torch
+
         if torch.cuda.is_available():
             _ = torch.zeros(1, device=device)
             torch.cuda.synchronize(device)
@@ -158,6 +169,7 @@ def warm_up_cuda(device: str = "cuda") -> None:
 # CUDA Stream Pool
 # ---------------------------------------------------------------------------
 
+
 class CUDAStreamPool:
     """
     A simple fixed-size pool of CUDA streams for pipeline parallelism.
@@ -166,6 +178,7 @@ class CUDAStreamPool:
 
     def __init__(self, n: int = 2, device: str = "cuda"):
         import torch
+
         self._streams = [torch.cuda.Stream(device=device) for _ in range(n)]
         self._available = list(self._streams)
 
@@ -182,12 +195,14 @@ class CUDAStreamPool:
 
     def sync_all(self) -> None:
         import torch
+
         torch.cuda.synchronize()
 
 
 # ---------------------------------------------------------------------------
 # Pinned-memory frame buffer for zero-copy CPU → GPU transfer
 # ---------------------------------------------------------------------------
+
 
 class PinnedFrameBuffer:
     """
@@ -204,22 +219,22 @@ class PinnedFrameBuffer:
 
     def __init__(self, n: int, frame_shape: tuple, dtype=None):
         import torch
+
         if dtype is None:
             dtype = torch.uint8
-        self._slots = [
-            torch.zeros(frame_shape, dtype=dtype, pin_memory=True)
-            for _ in range(n)
-        ]
+        self._slots = [torch.zeros(frame_shape, dtype=dtype, pin_memory=True) for _ in range(n)]
 
     def get_slot(self, idx: int):
         return self._slots[idx]
 
     def fill_slot(self, idx: int, numpy_frame) -> None:
         import torch
+
         self._slots[idx].copy_(torch.from_numpy(numpy_frame))
 
     def to_gpu(self, idx: int, stream=None, device: str = "cuda"):
         import torch
+
         if stream is not None:
             with torch.cuda.stream(stream):
                 return self._slots[idx].to(device, non_blocking=True)

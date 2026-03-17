@@ -13,27 +13,26 @@ class SharpEngine(BaseEngine):
         super().__init__("Sharp", logger_callback)
         self.process = None
 
-    def _get_sharp_cmd(self):
-        # 1. Look for .venv_sharp dedicated environment
+    @staticmethod
+    def _venv_dir():
         root_dir = resolve_project_root()
-        sharp_venv_bin = root_dir / ".venv_sharp" / "bin"
+        bin_dir = "Scripts" if sys.platform == "win32" else "bin"
+        return root_dir / ".venv_sharp" / bin_dir
 
-        # Check binary in venv_sharp
-        sharp_bin = sharp_venv_bin / "sharp"
-        if sharp_bin.exists() and os.access(sharp_bin, os.X_OK):
-            return [str(sharp_bin)]
+    def _get_sharp_cmd(self):
+        venv_bin = self._venv_dir()
 
-        # Check python in venv_sharp -> run module
-        sharp_python = sharp_venv_bin / "python3"
+        # 1. Look for sharp entry-point script in .venv_sharp
+        for name in ["sharp.exe", "sharp"] if sys.platform == "win32" else ["sharp"]:
+            sharp_bin = venv_bin / name
+            if sharp_bin.exists() and (sys.platform == "win32" or os.access(sharp_bin, os.X_OK)):
+                return [str(sharp_bin)]
+
+        # 2. Fall back to running the module via the venv's python
+        python_name = "python.exe" if sys.platform == "win32" else "python3"
+        sharp_python = venv_bin / python_name
         if sharp_python.exists():
             return [str(sharp_python), "-m", "sharp.cli"]
-
-        # 2. Try to find 'sharp' in the same bin dir as python executable (venv main)
-        # Fallback if dedicated venv failed
-        venv_bin = Path(sys.executable).parent
-        sharp_bin = venv_bin / "sharp"
-        if sharp_bin.exists() and os.access(sharp_bin, os.X_OK):
-            return [str(sharp_bin)]
 
         # 3. Check global PATH
         from shutil import which
@@ -41,25 +40,29 @@ class SharpEngine(BaseEngine):
         if which("sharp"):
             return ["sharp"]
 
-        # 3. Fallback: Run module
+        # 4. Last resort: current executable
         return [sys.executable, "-m", "sharp.cli"]
 
     def is_installed(self):
         """Vérifie si Sharp est disponible (venv_sharp ou local)"""
-        # Check venv_sharp binary
-        root_dir = resolve_project_root()
-        sharp_venv_bin = root_dir / ".venv_sharp" / "bin" / "sharp"
-        if sharp_venv_bin.exists():
-            return True
-
         import importlib.util
         from shutil import which
 
-        # 1. Check binary
+        # 1. Check .venv_sharp (platform-aware)
+        venv_bin = self._venv_dir()
+        for name in (
+            ["sharp.exe", "sharp", "python.exe"]
+            if sys.platform == "win32"
+            else ["sharp", "python3"]
+        ):
+            if (venv_bin / name).exists():
+                return True
+
+        # 2. Check binary on PATH
         if which("sharp"):
             return True
 
-        # 2. Check module
+        # 3. Check importable module
         return importlib.util.find_spec("sharp") is not None
 
     def predict(self, input_path, output_path, params=None):

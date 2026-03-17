@@ -166,9 +166,7 @@ class FourDGSTab(QWidget):
         QApplication.processEvents()
 
         try:
-            # We use subprocess to call pip
-            # Make sure we use the current python executable
-            cmd = [sys.executable, "-m", "pip", "install", "nerfstudio"]
+            cmd = ["uv", "pip", "install", "nerfstudio", "--python", sys.executable]
             subprocess.check_call(cmd)
 
             QMessageBox.information(self, tr("msg_success"), tr("four_dgs_install_done"))

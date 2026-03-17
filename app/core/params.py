@@ -1,9 +1,11 @@
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
+
 
 @dataclass
 class ColmapParams:
     """Structure de données pour les paramètres COLMAP"""
-    camera_model: str = 'SIMPLE_RADIAL'
+
+    camera_model: str = "SIMPLE_RADIAL"
     single_camera: bool = True
     max_image_size: int = 3200
     max_num_features: int = 8192
@@ -20,15 +22,15 @@ class ColmapParams:
     ba_refine_principal_point: bool = False
     ba_refine_extra_params: bool = True
     min_num_matches: int = 15
-    matcher_type: str = 'exhaustive' # exhaustive, sequential, vocab_tree
+    matcher_type: str = "exhaustive"  # exhaustive, sequential, vocab_tree
     undistort_images: bool = False
     use_glomap: bool = False
     use_gpu_sift: bool = True
     use_gpu_matching: bool = True
-    
+
     def to_dict(self):
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data):
         # Filtrer les clés inconnues pour éviter les erreurs si le json est vieux

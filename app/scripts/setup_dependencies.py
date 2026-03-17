@@ -618,6 +618,11 @@ def _install_system_dependencies_windows(check_only=False):
     return True
 
 
+_COLMAP_WINDOWS_CUDA_URL = (
+    "https://github.com/colmap/colmap/releases/download/4.0.1/colmap-x64-windows-cuda.zip"
+)
+
+
 def _find_colmap_in_engines(engines_dir: Path):
     """Finds colmap.exe inside engines/colmap/ directory tree."""
     colmap_dir = engines_dir / "colmap"
@@ -631,43 +636,12 @@ def _find_colmap_in_engines(engines_dir: Path):
 
 
 def _download_colmap_windows(engines_dir: Path) -> bool:
-    """Downloads the latest COLMAP pre-built Windows binary from GitHub releases."""
-    import json as _json
+    """Downloads the COLMAP CUDA Windows binary."""
     import urllib.request
     import zipfile
 
-    logger.info("Fetching latest COLMAP release from GitHub...")
-    try:
-        req = urllib.request.Request(
-            "https://api.github.com/repos/colmap/colmap/releases/latest",
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "CorbeauSplat"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = _json.loads(resp.read())
-    except Exception as e:
-        logger.error("Could not fetch COLMAP release info: %s", e)
-        return False
-
-    # Prefer CUDA build, fall back to no-cuda
-    asset_url = None
-    asset_name = None
-    cuda_asset = no_cuda_asset = None
-    for asset in data.get("assets", []):
-        name = asset.get("name", "")
-        if "windows" in name.lower() and name.endswith(".zip"):
-            if "no-cuda" in name.lower():
-                no_cuda_asset = (asset["browser_download_url"], name)
-            elif "cuda" in name.lower():
-                cuda_asset = (asset["browser_download_url"], name)
-            elif no_cuda_asset is None and cuda_asset is None:
-                no_cuda_asset = (asset["browser_download_url"], name)
-
-    chosen = cuda_asset or no_cuda_asset
-    if not chosen:
-        logger.error("No Windows COLMAP binary found in latest release.")
-        return False
-
-    asset_url, asset_name = chosen
+    asset_url = _COLMAP_WINDOWS_CUDA_URL
+    asset_name = asset_url.rsplit("/", 1)[-1]
     logger.info("Downloading COLMAP: %s...", asset_name)
     archive_path = engines_dir / asset_name
     try:
@@ -933,82 +907,6 @@ class UpscaleEngineDep(PipEngine):
         self.pip_install(pkgs)
 
 
-class VR180EngineDep(PipEngine):
-    """VR 180 green-screen segmentation engine (SAM + OpenCV + torch)"""
-
-    def __init__(self):
-        super().__init__("vr180", None, ".venv_vr180")
-
-    def is_enabled_in_config(self, config: dict) -> bool:
-        return config.get("vr180_params", {}).get("enabled", False) or config.get(
-            "vr180_enabled", False
-        )
-
-    def install(self):
-        self.create_venv()
-        # torch 2.8.0 / torchvision 0.23.0 — pinned pair for reproducibility
-        if sys.platform == "win32":
-            self.pip_install(
-                [
-                    "torch==2.8.0",
-                    "torchvision==0.23.0",
-                    "--index-url",
-                    "https://download.pytorch.org/whl/cu129",
-                ]
-            )
-            # triton-windows enables torch.compile on Windows
-            self.pip_install(["triton-windows==3.6.0.post26"])
-        else:
-            self.pip_install(["torch==2.8.0", "torchvision==0.23.0"])
-        self.pip_install(
-            [
-                "opencv-python==4.13.0.92",
-                "numpy==2.4.3",
-                "kornia==0.8.2",
-                "onnxruntime-gpu==1.24.3",
-            ]
-        )
-        # Install SAM (Segment Anything Model) from Meta
-        self.pip_install(["git+https://github.com/facebookresearch/segment-anything.git"])
-        self.save_local_version("sam-installed")
-        logger.info("VR180 engine (SAM + OpenCV + kornia + onnxruntime-gpu) installed.")
-
-    def is_installed(self) -> bool:
-        if not self.python_bin.exists():
-            return False
-        try:
-            result = subprocess.run(
-                [
-                    str(self.python_bin),
-                    "-c",
-                    "import cv2, torch; from segment_anything import sam_model_registry",
-                ],
-                capture_output=True,
-                timeout=10,
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-
-def uninstall_vr180():
-    return VR180EngineDep().uninstall()
-
-
-def install_vr180():
-    dep = VR180EngineDep()
-    dep.install()
-    return dep.is_installed()
-
-
-def get_venv_vr180_python():
-    """Returns path to python executable in .venv_vr180"""
-    root = resolve_project_root()
-    if sys.platform == "win32":
-        return root / ".venv_vr180" / "Scripts" / "python.exe"
-    return root / ".venv_vr180" / "bin" / "python"
-
-
 def main():
     root = Path(__file__).resolve().parent.parent.parent
     engines_dir = root / "engines"
@@ -1021,7 +919,6 @@ def main():
     manager.register(SuperSplatEngineDep())
     manager.register(UpscaleEngineDep())
     manager.register(Extractor360EngineDep())
-    manager.register(VR180EngineDep())
 
     check_only = "--check" in sys.argv
     startup = "--startup" in sys.argv
